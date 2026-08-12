@@ -248,6 +248,21 @@ Google Search Console verification: paste the meta tag here after adding the sit
       </div>
       <div class="medium-readout" id="medium-readout"></div>
 
+      <div class="gamut-block">
+        <div class="gamut-head">
+          <span class="gamut-title" data-i18n="gamutTitle">Colour gamut</span>
+          <span class="gamut-cov" id="gamut-coverage"></span>
+        </div>
+        <canvas id="gamut-canvas" width="240" height="240" aria-label="Achievable colour gamut compared to RGB and CMYK"></canvas>
+        <div class="gamut-legend">
+          <span class="gl gl-rgb"><i></i><span data-i18n="gamutRGB">RGB</span></span>
+          <span class="gl gl-cmyk"><i></i><span data-i18n="gamutCMYK">CMYK</span></span>
+          <span class="gl gl-pal"><i></i><span data-i18n="gamutPalette">This palette</span></span>
+          <span class="gl gl-target"><i></i><span data-i18n="gamutTarget">Target</span></span>
+          <span class="gl gl-mix"><i></i><span data-i18n="gamutMixed">Mixed</span></span>
+        </div>
+      </div>
+
       <div class="mix-filters">
         <div class="mix-filters-title" data-i18n="filtersTitle">Paint filters</div>
         <label class="ff" data-filter="lightfast">
@@ -307,6 +322,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
         </div>
       </div>
       <div class="delta" id="mix-delta"></div>
+      <div class="mix-warning" id="mix-warning" hidden></div>
 
       <div class="mix-list" id="mix-list"></div>
       <button id="btn-resolve" class="btn btn-ghost" type="button" data-i18n="btnResolve">Re-solve mix</button>
@@ -507,6 +523,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <script src="js/reticle.js"></script>
 <script src="js/readout.js"></script>
 <script src="js/mixing.js"></script>
+<script src="js/gamut.js"></script>
 <script src="js/mix-ui.js"></script>
 <script src="js/history.js"></script>
 <script src="js/palette-editor.js"></script>

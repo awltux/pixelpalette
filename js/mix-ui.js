@@ -30,6 +30,8 @@
 
   const els = {};
   const FILTER_KEY = 'pp.filters';
+  let gamutRAF = 0;
+  let gamutResize = null;
   const ui = {
     paints: [],
     medium: null,
@@ -62,6 +64,11 @@
     els.edit = document.getElementById('btn-edit-palette');
     els.dup = document.getElementById('btn-dup-palette');
     els.readout = document.getElementById('medium-readout');
+    els.gamutCanvas = document.getElementById('gamut-canvas');
+    if (els.gamutCanvas && global.ResizeObserver) {
+      gamutResize = new ResizeObserver(() => renderGamut());
+      gamutResize.observe(els.gamutCanvas);
+    }
     els.filters = {
       lightfast: document.getElementById('filter-lightfast'),
       granulating: document.getElementById('filter-granulating'),
@@ -121,6 +128,26 @@
     ui.medium = medium;
     updateMediumReadout();
     updateFilterVisibility();
+    renderGamut();
+  }
+
+  function renderGamut() {
+    if (!els.gamutCanvas || !global.CP.Gamut || !ui.medium) return;
+    // defer until layout has settled so the canvas has its real size;
+    // skips harmlessly if called before the element is laid out
+    cancelAnimationFrame(gamutRAF);
+    gamutRAF = requestAnimationFrame(() => {
+      const data = global.CP.Gamut.compute(ui.paints, ui.medium);
+      const markers = [];
+      if (ui.target) markers.push({ rgb: ui.target, ring: true });
+      if (ui.result && ui.result.mixRgb) markers.push({ rgb: ui.result.mixRgb, ring: false });
+      const ok = global.CP.Gamut.render(els.gamutCanvas, data, { markers });
+      if (!ok) return;
+      const cov = document.getElementById('gamut-coverage');
+      if (cov) {
+        cov.textContent = `${I18N.t('gamutCoversRGB')} ${(data.coverageRGB * 100).toFixed(0)}% · ${I18N.t('gamutCoversCMYK')} ${(data.coverageCMYK * 100).toFixed(0)}%`;
+      }
+    });
   }
 
   /* granulation & staining only apply to glazing media (watercolour);
@@ -174,6 +201,7 @@
     ui.paints = paints;
     ui.medium = medium;
     updateFilterVisibility();
+    renderGamut();
   }
 
   function refresh() {
@@ -214,18 +242,54 @@
     if (!avail.paints.length) {
       ui.result = null;
       render();
+      renderGamut();
       return;
     }
     const res = Mixing.solve(avail.paints, targetRgb, ui.medium, maxPaints());
     avail.indices.forEach((idx, j) => { ui.recipe[idx] = res.ratios[j]; });
     ui.result = res;
+    // Degenerate-recipe guard: when a target is far outside the palette's
+    // achievable range the solver can collapse to a single unrelated pigment
+    // (e.g. a purple "solved" with 100% Burnt Umber). Treat that as a hard
+    // miss so the UI warns instead of presenting a confident recipe.
+    if (res.deltaE > 12) {
+      const used = res.ratios.filter((v) => v > 0.005).length;
+      if (used <= 1) ui.result = Object.assign({}, res, { deltaE: 999 });
+    }
     render();
+    renderGamut();
   }
 
   function maxPaints() {
     const v = ui.filter.maxPaints;
     const n = parseInt(v, 10);
     return isFinite(n) && n > 0 ? n : 0;
+  }
+
+  /* mix quality bands (CIE76 ΔE): <=6 good, <=12 fair, >12 hard */
+  function difficulty(deltaE) {
+    if (deltaE <= 6) return 'good';
+    if (deltaE <= 12) return 'fair';
+    return 'hard';
+  }
+
+  function updateDifficulty() {
+    if (!ui.result) {
+      els.delta.classList.remove('delta-good', 'delta-fair', 'delta-hard');
+      els.delta.dataset.difficulty = '';
+      const w = document.getElementById('mix-warning');
+      if (w) w.hidden = true;
+      return;
+    }
+    const d = difficulty(ui.result.deltaE);
+    els.delta.classList.remove('delta-good', 'delta-fair', 'delta-hard');
+    els.delta.classList.add('delta-' + d);
+    els.delta.dataset.difficulty = d;
+    const warning = document.getElementById('mix-warning');
+    if (warning) {
+      warning.hidden = d !== 'hard';
+      if (d === 'hard') warning.textContent = I18N.t('mixOutOfRange');
+    }
   }
 
   function deltaText() {
@@ -241,6 +305,10 @@
     els.targetSwatch.style.background = Color.rgbToHex(ui.target.r, ui.target.g, ui.target.b);
     els.mixSwatch.style.background = ui.result ? ui.result.mixHex : '#333';
     els.delta.textContent = deltaText();
+
+    // difficulty indicator: colour-code the readout and warn when a target
+    // cannot be mixed well with this palette
+    updateDifficulty();
 
     // top paints by amount
     const entries = ui.recipe
@@ -317,6 +385,8 @@
         if (ui.medium.type === 'glaze') ui.result.conc = ui.recipe.reduce((a, b) => a + b, 0);
         els.mixSwatch.style.background = mix.mixHex;
         els.delta.textContent = deltaText();
+        updateDifficulty();
+        renderGamut();
         updateLabels();
         // sync sibling slider values
         const siblingInputs = els.list.querySelectorAll('input[type="range"]');

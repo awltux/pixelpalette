@@ -353,6 +353,7 @@
   const Mixing = {
     spectrumToRgb,
     synthesizeReflectance,
+    mixReflectance,
 
     /* unconstrained least-squares solve, returns ratios aligned to paints */
     _solveInternal(paints, targetRgb, medium) {
