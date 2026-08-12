@@ -4,8 +4,89 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#111318">
-<meta name="description" content="Pixel Palette - pick colours from any image and mix them from real paint palettes.">
+<meta name="robots" content="index, follow">
+<meta name="description" content="Pick exact colours from any image and mix them from real paint palettes with Kubelka–Munk physics. Oil, acrylic, watercolour, gouache and pencils.">
 <title>Pixel Palette — colour picker &amp; paint mixer</title>
+
+<!-- TODO: replace https://pixelpalette.awltux.trade/ with the production URL before deploying -->
+<link rel="canonical" href="https://pixelpalette.awltux.trade/">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Pixel Palette">
+<meta property="og:title" content="Pixel Palette — colour picker &amp; paint mixer">
+<meta property="og:description" content="Pick exact colours from any image and mix them from real paint palettes with Kubelka–Munk physics. Oil, acrylic, watercolour, gouache and pencils.">
+<meta property="og:url" content="https://pixelpalette.awltux.trade/">
+<meta property="og:image" content="https://pixelpalette.awltux.trade/assets/og-image.svg">
+<meta property="og:image:alt" content="Pixel Palette colour wheel">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Pixel Palette — colour picker &amp; paint mixer">
+<meta name="twitter:description" content="Pick exact colours from any image and mix them from real paint palettes with Kubelka–Munk physics.">
+<meta name="twitter:image" content="https://pixelpalette.awltux.trade/assets/og-image.svg">
+
+<!--
+Google Search Console verification: paste the meta tag here after adding the site.
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+<script>window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-XXXXXXXXXX');</script>
+-->
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Pixel Palette",
+  "description": "Pick exact colours from any image and mix them from real paint palettes with Kubelka–Munk physics. Oil, acrylic, watercolour, gouache and pencils.",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires JavaScript",
+  "inLanguage": "en",
+  "url": "https://pixelpalette.awltux.trade/",
+  "image": "https://pixelpalette.awltux.trade/assets/og-image.svg",
+  "softwareVersion": "1.0",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is Pixel Palette free to use?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Pixel Palette is free with no sign-up required. All colour picking and paint mixing happens entirely in your browser — no image is ever uploaded to a server." }
+    },
+    {
+      "@type": "Question",
+      "name": "How does the paint mixer decide what paints to use?",
+      "acceptedAnswer": { "@type": "Answer", "text": "It solves a paint mix using Kubelka–Munk physics. Each real paint has a measured pigment profile (strength, opacity and undertone), and the solver finds the smallest combination of your chosen palette paints whose colour matches your sampled colour." }
+    },
+    {
+      "@type": "Question",
+      "name": "What is the difference between painting mediums?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Opaque mediums (oil, acrylic, gouache and pencils) match the exact surface colour, while glaze mediums such as watercolour account for the paper showing through and match paint at full strength. The solver tells you the right wash strength." }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I add my own paints?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Use the Edit button on any palette to add, remove, rename or recolour paints. Custom palettes are stored in your browser and can be duplicated." }
+    },
+    {
+      "@type": "Question",
+      "name": "Where does my image data go?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Nowhere. Pixel Palette is fully client-side: your images and paints never leave your device." }
+    }
+  ]
+}
+</script>
+
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -20,6 +101,7 @@
   </div>
   <div class="header-actions">
     <button id="btn-theme" class="btn btn-ghost" type="button" data-i18n="btnTheme" aria-label="Toggle dark / light theme">Theme</button>
+    <button id="btn-info" class="btn btn-ghost" type="button" data-i18n="btnInfo" aria-label="About Pixel Palette">Info</button>
     <button id="btn-tour" class="btn btn-ghost" type="button" data-i18n="btnTour" aria-label="Replay the guided tour" hidden>Tour</button>
   </div>
 </header>
@@ -97,29 +179,31 @@
     </section>
 
     <section class="panel readout-panel" id="panel-readout">
-      <h2 data-i18n="panelReadout">Colour</h2>
-      <div class="swatch-row">
-        <div class="swatch" id="colour-swatch" aria-hidden="true"></div>
-        <div class="swatch-info">
-          <div class="readout-row">
-            <span class="fmt">HEX</span>
-            <code id="hex-val">#000000</code>
-            <button class="copy" data-copy="hex" type="button" data-i18n="copy">Copy</button>
-          </div>
-          <div class="readout-row">
-            <span class="fmt">RGB</span>
-            <code id="rgb-val">0, 0, 0</code>
-            <button class="copy" data-copy="rgb" type="button" data-i18n="copy">Copy</button>
-          </div>
-          <div class="readout-row">
-            <span class="fmt">HSL</span>
-            <code id="hsl-val">0°, 0%, 0%</code>
-            <button class="copy" data-copy="hsl" type="button" data-i18n="copy">Copy</button>
-          </div>
-          <div class="readout-row">
-            <span class="fmt">CMYK</span>
-            <code id="cmyk-val">0, 0, 0, 100</code>
-            <button class="copy" data-copy="cmyk" type="button" data-i18n="copy">Copy</button>
+      <div class="readout-area" id="readout-area">
+        <h2 data-i18n="panelReadout">Colour</h2>
+        <div class="swatch-row">
+          <div class="swatch" id="colour-swatch" aria-hidden="true"></div>
+          <div class="swatch-info">
+            <div class="readout-row">
+              <span class="fmt">HEX</span>
+              <code id="hex-val">#000000</code>
+              <button class="copy" data-copy="hex" type="button" data-i18n="copy">Copy</button>
+            </div>
+            <div class="readout-row">
+              <span class="fmt">RGB</span>
+              <code id="rgb-val">0, 0, 0</code>
+              <button class="copy" data-copy="rgb" type="button" data-i18n="copy">Copy</button>
+            </div>
+            <div class="readout-row">
+              <span class="fmt">HSL</span>
+              <code id="hsl-val">0°, 0%, 0%</code>
+              <button class="copy" data-copy="hsl" type="button" data-i18n="copy">Copy</button>
+            </div>
+            <div class="readout-row">
+              <span class="fmt">CMYK</span>
+              <code id="cmyk-val">0, 0, 0, 100</code>
+              <button class="copy" data-copy="cmyk" type="button" data-i18n="copy">Copy</button>
+            </div>
           </div>
         </div>
       </div>
@@ -180,6 +264,14 @@
             <option value="6">6</option>
           </select>
         </label>
+        <label class="ff" data-filter="toxic">
+          <span data-i18n="filterToxic">Toxic</span>
+          <select id="filter-toxic">
+            <option value="any" data-i18n="filterAny">Any</option>
+            <option value="no" data-i18n="filterToxicNo">Non-toxic only</option>
+            <option value="yes" data-i18n="filterToxicYes">Toxic only</option>
+          </select>
+        </label>
       </div>
 
       <div class="mix-compare">
@@ -215,6 +307,7 @@
 
 <footer class="app-footer">
   <span data-i18n="footer">Pick a colour. Mix a paint. Make art.</span>
+  <button id="btn-privacy" class="btn btn-link" type="button" data-i18n="consentReopen">Privacy</button>
 </footer>
 
 <!-- Palette editor modal -->
@@ -236,12 +329,101 @@
   </div>
 </div>
 
+<!-- Info modal (static, crawlable content) -->
+<div class="overlay" id="info-overlay" hidden>
+  <div class="modal info-modal" role="dialog" aria-modal="true" aria-labelledby="info-overlay-title">
+    <h2 id="info-overlay-title" data-i18n="infoTitle">About Pixel Palette</h2>
+    <div class="info-content">
+      <section>
+        <h3 data-i18n="infoOverviewTitle">What is Pixel Palette?</h3>
+        <p data-i18n="infoOverview">Pixel Palette is a free colour picker and paint mixer for artists. Open any image, sample the exact pixel colour you want, and get a real paint-mix recipe to recreate it from actual paint palettes — oil, acrylic, watercolour, gouache or pencils. Mixing is solved with Kubelka–Munk physics, the same model used in paint chemistry, so the recipe accounts for each pigment's strength, opacity and undertone rather than just matching on screen.</p>
+      </section>
+      <section>
+        <h3 data-i18n="infoHowTitle">How to use it</h3>
+        <ol>
+          <li data-i18n="infoStep1">Open an image from your device, or start with the built-in demo image.</li>
+          <li data-i18n="infoStep2">Drag to pan and scroll to zoom, then move the reticle over the colour you want.</li>
+          <li data-i18n="infoStep3">Read the exact HEX, RGB, HSL and CMYK values, and copy any of them with one click.</li>
+          <li data-i18n="infoStep4">Pick a medium and palette, then solve the mix — the solver lists the paints and proportions to blend.</li>
+          <li data-i18n="infoStep5">Re-solve as you edit your palette, and use History to keep every colour you sample.</li>
+        </ol>
+      </section>
+      <section>
+        <h3 data-i18n="infoMediumsTitle">Paint mediums</h3>
+        <dl class="info-mediums">
+          <div class="info-medium">
+            <dt>Oil</dt>
+            <dd data-i18n="infoMediumOil">Slow-drying, glossy and rich. Paints mix on the canvas while wet, so recipes blend seamlessly.</dd>
+          </div>
+          <div class="info-medium">
+            <dt>Acrylic</dt>
+            <dd data-i18n="infoMediumAcrylic">Fast-drying and satin. Matches the surface colour closely and can be worked wet-in-wet for a short window.</dd>
+          </div>
+          <div class="info-medium">
+            <dt>Gouache</dt>
+            <dd data-i18n="infoMediumGouache">Opaque, matte and water-soluble. Lays down flat colour that dries quickly and stays removable with water.</dd>
+          </div>
+          <div class="info-medium">
+            <dt>Pencils</dt>
+            <dd data-i18n="infoMediumPencil">Dry pigment on paper. Recipes describe layering and hatching rather than wet blending.</dd>
+          </div>
+          <div class="info-medium">
+            <dt>Watercolour</dt>
+            <dd data-i18n="infoMediumWatercolour">A glaze medium — the paper shows through the wash, so the solver matches paint at full strength and tells you the wash strength to apply.</dd>
+          </div>
+        </dl>
+      </section>
+      <section>
+        <h3 data-i18n="infoFeaturesTitle">Features</h3>
+        <ul>
+          <li data-i18n="infoFeature1">Magnified loupe and fine-control nudge for pixel-perfect sampling.</li>
+          <li data-i18n="infoFeature2">Paint filters: granulating, staining, lightfastness, toxicity and maximum paint count per mix.</li>
+          <li data-i18n="infoFeature3">Edit palettes — add, remove, rename or recolour paints, and duplicate any palette.</li>
+          <li data-i18n="infoFeature4">Soften radius to sample an averaged area instead of a single pixel.</li>
+          <li data-i18n="infoFeature5">Colour history with one-click copy, and a guided tour for first-time visitors.</li>
+        </ul>
+      </section>
+      <section>
+        <h3 data-i18n="infoFaqTitle">Frequently asked questions</h3>
+        <details>
+          <summary data-i18n="faqQ1">Is Pixel Palette free to use?</summary>
+          <p data-i18n="faqA1">Yes. Pixel Palette is free with no sign-up required. All colour picking and paint mixing happens entirely in your browser — no image is ever uploaded to a server.</p>
+        </details>
+        <details>
+          <summary data-i18n="faqQ2">How does the paint mixer decide what paints to use?</summary>
+          <p data-i18n="faqA2">It solves a paint mix using Kubelka–Munk physics. Each real paint has a measured pigment profile (strength, opacity and undertone), and the solver finds the smallest combination of your chosen palette paints whose colour matches your sampled colour.</p>
+        </details>
+        <details>
+          <summary data-i18n="faqQ3">What is the difference between painting mediums?</summary>
+          <p data-i18n="faqA3">Opaque mediums (oil, acrylic, gouache and pencils) match the exact surface colour, while glaze mediums such as watercolour account for the paper showing through and match paint at full strength. The solver tells you the right wash strength.</p>
+        </details>
+        <details>
+          <summary data-i18n="faqQ4">Can I add my own paints?</summary>
+          <p data-i18n="faqA4">Yes. Use the Edit button on any palette to add, remove, rename or recolour paints. Custom palettes are stored in your browser and can be duplicated.</p>
+        </details>
+        <details>
+          <summary data-i18n="faqQ5">Where does my image data go?</summary>
+          <p data-i18n="faqA5">Nowhere. Pixel Palette is fully client-side: your images and paints never leave your device.</p>
+        </details>
+      </section>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="info-close" class="btn btn-primary" type="button" data-i18n="infoDone">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Consent / privacy banner (populated by js/consent.js) -->
+<div class="consent-root" id="consent-root" hidden></div>
+
 <!-- Tutorial / app-driver overlay (built by js/tutorial.js) -->
 <div class="tutorial-root" id="tutorial-root" hidden></div>
 
 <noscript><p style="padding:1rem">This app requires JavaScript.</p></noscript>
 
 <script src="js/i18n.js"></script>
+<script src="js/consent.js"></script>
 <script src="js/color.js"></script>
 <script src="js/palettes.js"></script>
 <script src="js/demo-image.js"></script>

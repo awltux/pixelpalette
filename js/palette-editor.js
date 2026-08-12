@@ -87,6 +87,17 @@
     extra.appendChild(field(I18N.t('propCi'), textInput('pe-ci', p.ci || '')));
     extra.appendChild(field(I18N.t('propLightfast'), selectInput('pe-lf', ['I', 'II', 'III', 'IV'], p.lightfast || 'II')));
     extra.appendChild(field(I18N.t('propUndertone'), colourInput('pe-undertone', p.undertone || p.hex)));
+    const toxic = document.createElement('input');
+    toxic.type = 'checkbox';
+    toxic.className = 'pe-toxic';
+    toxic.checked = !!p.toxic;
+    const toxicWrap = document.createElement('label');
+    toxicWrap.className = 'pe-field pe-check';
+    const tl = document.createElement('span');
+    tl.textContent = I18N.t('propToxic');
+    toxicWrap.appendChild(tl);
+    toxicWrap.appendChild(toxic);
+    extra.appendChild(toxicWrap);
     if (isWC) {
       const gran = document.createElement('input');
       gran.type = 'checkbox';
@@ -172,6 +183,7 @@
       const gran = row.querySelector('.pe-gran');
       const stain = row.querySelector('.pe-stain');
       const undertone = row.querySelector('.pe-undertone');
+      const toxic = row.querySelector('.pe-toxic');
       paints.push({
         name: n || c,
         brand: brandEl.value.trim(),
@@ -183,6 +195,7 @@
         undertone: undertone ? undertone.value : (c || ''),
         granulating: gran ? gran.checked : false,
         staining: stain ? stain.value : 'None',
+        toxic: toxic ? toxic.checked : false,
       });
     });
     return paints;

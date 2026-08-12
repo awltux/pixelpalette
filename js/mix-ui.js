@@ -22,7 +22,7 @@
   };
 
   function loadFilters() {
-    const def = { lightfast: 'all', granulating: 'any', staining: 'any', maxPaints: 'all' };
+    const def = { lightfast: 'all', granulating: 'any', staining: 'any', maxPaints: 'all', toxic: 'any' };
     try {
       const raw = localStorage.getItem(FILTER_KEY);
       if (raw) return Object.assign({}, def, JSON.parse(raw));
@@ -49,6 +49,7 @@
       granulating: document.getElementById('filter-granulating'),
       staining: document.getElementById('filter-staining'),
       maxPaints: document.getElementById('filter-maxpaints'),
+      toxic: document.getElementById('filter-toxic'),
     };
 
     populateSelect();
@@ -145,6 +146,7 @@
     if (typeof p.strength === 'number' && p.strength !== 1) bits.push(`${t('propStrength')} ×${p.strength}`);
     if (p.granulating) bits.push(t('propGranulating'));
     if (p.staining && p.staining !== 'None') bits.push(`${t('propStaining')}: ${t('stain' + p.staining)}`);
+    if (p.toxic) bits.push(t('propToxic'));
     return bits.join(' · ');
   }
 
@@ -179,6 +181,8 @@
       if (f.granulating === 'no' && p.granulating) return;
       if (f.staining === 'no-high' && (STAIN_RANK[p.staining] || 0) >= 3) return;
       if (f.staining === 'no-med-high' && (STAIN_RANK[p.staining] || 0) >= 2) return;
+      if (f.toxic === 'no' && p.toxic) return;
+      if (f.toxic === 'yes' && !p.toxic) return;
       indices.push(i);
     });
     return { indices, paints: indices.map(i => ui.paints[i]) };
@@ -245,6 +249,13 @@
       const name = document.createElement('div');
       name.className = 'mix-item-name';
       name.textContent = e.paint.name;
+      if (e.paint.toxic) {
+        const badge = document.createElement('span');
+        badge.className = 'mix-toxic';
+        badge.textContent = I18N.t('propToxic');
+        badge.title = I18N.t('propToxic');
+        name.appendChild(badge);
+      }
       const brand = document.createElement('div');
       brand.className = 'mix-item-brand';
       brand.textContent = e.paint.brand || '';

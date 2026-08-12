@@ -98,10 +98,29 @@
     });
   }
 
+  /* ---------- info modal ---------- */
+  function initInfo() {
+    const overlay = document.getElementById('info-overlay');
+    const btn = document.getElementById('btn-info');
+    btn.addEventListener('click', () => { overlay.hidden = false; });
+    document.getElementById('info-close').addEventListener('click', () => { overlay.hidden = true; });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.hidden = true; });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !overlay.hidden) overlay.hidden = true;
+    });
+  }
+
+  /* ---------- consent ---------- */
+  function initConsent() {
+    global.CP.Consent.init();
+    document.getElementById('btn-privacy').addEventListener('click', () => global.CP.Consent.showBanner());
+  }
+
   /* ---------- boot ---------- */
   function boot() {
     I18N.apply();
 
+    initConsent();
     global.CP.ImageLoader.init();
     global.CP.Canvas.init();
     global.CP.Reticle.init();
@@ -114,6 +133,7 @@
     initToolbar();
     initKeyboard();
     initSoften();
+    initInfo();
 
     global.CP.blurFilter = blurFilter;
 

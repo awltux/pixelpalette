@@ -16,8 +16,12 @@
     { target: '#canvas-wrap', title: 'stepCanvasTitle', body: 'stepCanvasBody' },
     { target: '#panel-reticle', title: 'stepReticleTitle', body: 'stepReticleBody' },
     { target: '.magnifier', title: 'stepMagnifierTitle', body: 'stepMagnifierBody' },
-    { target: '#panel-readout', title: 'stepReadoutTitle', body: 'stepReadoutBody' },
+    { target: '#readout-area', title: 'stepReadoutTitle', body: 'stepReadoutBody' },
     { target: '#panel-mix', title: 'stepMixTitle', body: 'stepMixBody' },
+    { target: '#medium-readout', title: 'stepMediumTitle', body: 'stepMediumBody' },
+    { target: '.mix-filters', title: 'stepFiltersTitle', body: 'stepFiltersBody' },
+    { target: '.mix-top', title: 'stepDuplicateTitle', body: 'stepDuplicateBody' },
+    { target: '.toolbar-slider', title: 'stepSoftenTitle', body: 'stepSoftenBody' },
     { target: '#history', title: 'stepHistoryTitle', body: 'stepHistoryBody' },
   ];
 

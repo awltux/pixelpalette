@@ -1,7 +1,8 @@
 /* ============================================================
    palettes.js - default palettes per medium + persistence.
    Paint model: { name, hex, brand, strength, opacity, ci,
-                  lightfast, undertone, granulating, staining }.
+                  lightfast, undertone, granulating, staining,
+                  toxic }.
    Medium adds type/opacity/paper + artist readouts (drying,
    sheen, diluent, wet-workability).
    ============================================================ */
@@ -11,7 +12,7 @@
   const P = (name, hex, brand, o) => Object.assign({
     name, hex, brand,
     strength: 1, opacity: 100, ci: '', lightfast: 'II', undertone: hex,
-    granulating: false, staining: 'None',
+    granulating: false, staining: 'None', toxic: false,
   }, o || {});
 
   const MEDIA = {
@@ -25,13 +26,13 @@
   const DEFAULTS = {
     oil: [
       P('Titanium White', '#FBFBFB', 'W&N', { opacity: 100, ci: 'PW6', lightfast: 'I' }),
-      P('Cadmium Yellow Light', '#F6C900', 'W&N', { strength: 1.1, opacity: 90, ci: 'PY35', lightfast: 'I' }),
-      P('Cadmium Orange', '#F97306', 'W&N', { strength: 1.2, opacity: 90, ci: 'PO20', lightfast: 'I' }),
-      P('Cadmium Red', '#E62300', 'W&N', { strength: 1.2, opacity: 92, ci: 'PR108', lightfast: 'I', undertone: '#E8620B' }),
+      P('Cadmium Yellow Light', '#F6C900', 'W&N', { strength: 1.1, opacity: 90, ci: 'PY35', lightfast: 'I', toxic: true }),
+      P('Cadmium Orange', '#F97306', 'W&N', { strength: 1.2, opacity: 90, ci: 'PO20', lightfast: 'I', toxic: true }),
+      P('Cadmium Red', '#E62300', 'W&N', { strength: 1.2, opacity: 92, ci: 'PR108', lightfast: 'I', undertone: '#E8620B', toxic: true }),
       P('Alizarin Crimson', '#A4203A', 'W&N', { strength: 1.6, opacity: 40, ci: 'PR83', lightfast: 'III', undertone: '#B0224E' }),
       P('Quinacridone Rose', '#D63C9B', 'W&N', { strength: 2.0, opacity: 45, ci: 'PV19', lightfast: 'I' }),
       P('Ultramarine Blue', '#2641A4', 'W&N', { strength: 1.3, opacity: 65, ci: 'PB29', lightfast: 'I', undertone: '#2F50B8' }),
-      P('Cerulean Blue', '#007BB8', 'W&N', { strength: 0.8, opacity: 90, ci: 'PB35', lightfast: 'I' }),
+      P('Cerulean Blue', '#007BB8', 'W&N', { strength: 0.8, opacity: 90, ci: 'PB35', lightfast: 'I', toxic: true }),
       P('Phthalo Blue', '#0B5E97', 'W&N', { strength: 2.5, opacity: 40, ci: 'PB15', lightfast: 'I', undertone: '#0A7A90' }),
       P('Viridian', '#007C61', 'W&N', { strength: 1.5, opacity: 45, ci: 'PG18', lightfast: 'I' }),
       P('Sap Green', '#7A9B31', 'W&N', { strength: 0.9, opacity: 55, ci: 'PY129', lightfast: 'III' }),
@@ -42,13 +43,13 @@
     ],
     acrylic: [
       P('Titanium White', '#FFFFFF', 'Golden', { opacity: 100, ci: 'PW6', lightfast: 'I' }),
-      P('Cadmium Yellow Medium', '#F4C423', 'Golden', { strength: 1.1, opacity: 90, ci: 'PY35', lightfast: 'I' }),
-      P('Cadmium Orange', '#F97F0B', 'Golden', { strength: 1.2, opacity: 90, ci: 'PO20', lightfast: 'I' }),
-      P('Cadmium Red Medium', '#E32712', 'Golden', { strength: 1.2, opacity: 92, ci: 'PR108', lightfast: 'I', undertone: '#E8640E' }),
+      P('Cadmium Yellow Medium', '#F4C423', 'Golden', { strength: 1.1, opacity: 90, ci: 'PY35', lightfast: 'I', toxic: true }),
+      P('Cadmium Orange', '#F97F0B', 'Golden', { strength: 1.2, opacity: 90, ci: 'PO20', lightfast: 'I', toxic: true }),
+      P('Cadmium Red Medium', '#E32712', 'Golden', { strength: 1.2, opacity: 92, ci: 'PR108', lightfast: 'I', undertone: '#E8640E', toxic: true }),
       P('Quinacridone Crimson', '#8E1B3F', 'Golden', { strength: 1.9, opacity: 40, ci: 'PR206', lightfast: 'I' }),
       P('Dioxazine Purple', '#5B2A86', 'Golden', { strength: 2.2, opacity: 55, ci: 'PV23', lightfast: 'II' }),
       P('Ultramarine Blue', '#1F3A93', 'Golden', { strength: 1.3, opacity: 65, ci: 'PB29', lightfast: 'I', undertone: '#2741A6' }),
-      P('Cobalt Blue', '#0F5B9C', 'Golden', { strength: 0.9, opacity: 75, ci: 'PB28', lightfast: 'I' }),
+      P('Cobalt Blue', '#0F5B9C', 'Golden', { strength: 0.9, opacity: 75, ci: 'PB28', lightfast: 'I', toxic: true }),
       P('Phthalo Blue (GS)', '#093B6D', 'Golden', { strength: 2.6, opacity: 40, ci: 'PB15', lightfast: 'I', undertone: '#0A4E7E' }),
       P('Phthalo Green (YS)', '#0E7B4E', 'Golden', { strength: 2.5, opacity: 40, ci: 'PG7', lightfast: 'I', undertone: '#1E8A4F' }),
       P('Sap Green', '#6E8B2C', 'Golden', { strength: 0.9, opacity: 55, ci: 'PY129', lightfast: 'III' }),
@@ -60,13 +61,13 @@
     gouache: [
       P('Titanium White', '#FFFFFF', 'Schmincke', { opacity: 100, ci: 'PW6', lightfast: 'I' }),
       P('Lemon Yellow', '#F5DE0A', 'Schmincke', { strength: 1.0, opacity: 85, ci: 'PY3', lightfast: 'I' }),
-      P('Cadmium Yellow', '#F9B900', 'Schmincke', { strength: 1.1, opacity: 90, ci: 'PY35', lightfast: 'I' }),
-      P('Cadmium Orange', '#F97A00', 'Schmincke', { strength: 1.2, opacity: 90, ci: 'PO20', lightfast: 'I' }),
-      P('Cadmium Red', '#E32900', 'Schmincke', { strength: 1.2, opacity: 92, ci: 'PR108', lightfast: 'I', undertone: '#E7620B' }),
+      P('Cadmium Yellow', '#F9B900', 'Schmincke', { strength: 1.1, opacity: 90, ci: 'PY35', lightfast: 'I', toxic: true }),
+      P('Cadmium Orange', '#F97A00', 'Schmincke', { strength: 1.2, opacity: 90, ci: 'PO20', lightfast: 'I', toxic: true }),
+      P('Cadmium Red', '#E32900', 'Schmincke', { strength: 1.2, opacity: 92, ci: 'PR108', lightfast: 'I', undertone: '#E7620B', toxic: true }),
       P('Permanent Carmine', '#B01B45', 'Schmincke', { strength: 1.7, opacity: 75, ci: 'PR177', lightfast: 'II' }),
       P('Ultramarine Blue', '#2A3F9E', 'Schmincke', { strength: 1.3, opacity: 70, ci: 'PB29', lightfast: 'I', undertone: '#2F4AB0' }),
-      P('Cerulean Blue', '#0087BD', 'Schmincke', { strength: 0.8, opacity: 90, ci: 'PB35', lightfast: 'I' }),
-      P('Cobalt Blue', '#0D4E92', 'Schmincke', { strength: 0.9, opacity: 80, ci: 'PB28', lightfast: 'I' }),
+      P('Cerulean Blue', '#0087BD', 'Schmincke', { strength: 0.8, opacity: 90, ci: 'PB35', lightfast: 'I', toxic: true }),
+      P('Cobalt Blue', '#0D4E92', 'Schmincke', { strength: 0.9, opacity: 80, ci: 'PB28', lightfast: 'I', toxic: true }),
       P('Phthalo Green', '#007D5C', 'Schmincke', { strength: 2.5, opacity: 45, ci: 'PG7', lightfast: 'I', undertone: '#0E8A5E' }),
       P('Sap Green', '#6E9B2B', 'Schmincke', { strength: 0.9, opacity: 60, ci: 'PY129', lightfast: 'III' }),
       P('Yellow Ochre', '#C88A2D', 'Schmincke', { strength: 0.6, opacity: 85, ci: 'PY43', lightfast: 'I' }),
@@ -93,13 +94,13 @@
     ],
     watercolour: [
       P('Lemon Yellow', '#F7E42A', 'W&N', { strength: 1.0, opacity: 15, ci: 'PY3', lightfast: 'I', staining: 'Low' }),
-      P('Cadmium Yellow', '#F6BE00', 'W&N', { strength: 1.0, opacity: 25, ci: 'PY35', lightfast: 'I', staining: 'Low' }),
-      P('Cadmium Red', '#E53A1F', 'W&N', { strength: 1.1, opacity: 25, ci: 'PR108', lightfast: 'I', undertone: '#E8620B', staining: 'Medium' }),
+      P('Cadmium Yellow', '#F6BE00', 'W&N', { strength: 1.0, opacity: 25, ci: 'PY35', lightfast: 'I', staining: 'Low', toxic: true }),
+      P('Cadmium Red', '#E53A1F', 'W&N', { strength: 1.1, opacity: 25, ci: 'PR108', lightfast: 'I', undertone: '#E8620B', staining: 'Medium', toxic: true }),
       P('Permanent Rose', '#E33E7E', 'W&N', { strength: 2.0, opacity: 15, ci: 'PV19', lightfast: 'I', staining: 'High' }),
       P('Alizarin Crimson', '#A8233F', 'W&N', { strength: 1.7, opacity: 15, ci: 'PR83', lightfast: 'III', undertone: '#B0224E', staining: 'High' }),
       P('French Ultramarine', '#2F3E9E', 'W&N', { strength: 1.3, opacity: 15, ci: 'PB29', lightfast: 'I', granulating: true, staining: 'Low' }),
-      P('Cerulean Blue', '#1E8DC7', 'W&N', { strength: 0.8, opacity: 35, ci: 'PB35', lightfast: 'I', granulating: true, staining: 'Low' }),
-      P('Cobalt Blue', '#2358A6', 'W&N', { strength: 0.9, opacity: 20, ci: 'PB28', lightfast: 'I', granulating: true, staining: 'Low' }),
+      P('Cerulean Blue', '#1E8DC7', 'W&N', { strength: 0.8, opacity: 35, ci: 'PB35', lightfast: 'I', granulating: true, staining: 'Low', toxic: true }),
+      P('Cobalt Blue', '#2358A6', 'W&N', { strength: 0.9, opacity: 20, ci: 'PB28', lightfast: 'I', granulating: true, staining: 'Low', toxic: true }),
       P('Winsor Blue (GS)', '#0E2E5E', 'W&N', { strength: 2.5, opacity: 15, ci: 'PB15', lightfast: 'I', undertone: '#0E4E7E', staining: 'High' }),
       P('Phthalo Green', '#0E7E59', 'W&N', { strength: 2.5, opacity: 15, ci: 'PG7', lightfast: 'I', undertone: '#1E8A5E', staining: 'High' }),
       P('Viridian', '#0A6E5F', 'W&N', { strength: 1.6, opacity: 15, ci: 'PG18', lightfast: 'I', granulating: true, staining: 'Low' }),
@@ -146,6 +147,7 @@
         undertone: p.undertone || p.hex || d.undertone || '',
         granulating: p.granulating != null ? !!p.granulating : !!(d.granulating),
         staining: p.staining || d.staining || 'None',
+        toxic: p.toxic != null ? !!p.toxic : !!(d.toxic),
       };
     });
   }

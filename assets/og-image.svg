@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#111318"/>
+  <text x="80" y="120" font-family="system-ui, sans-serif" font-size="64" font-weight="700" fill="#f2f4f8">Pixel Palette</text>
+  <text x="80" y="175" font-family="system-ui, sans-serif" font-size="30" fill="#9aa3b2">Colour picker &amp; paint mixer</text>
+  <text x="80" y="230" font-family="system-ui, sans-serif" font-size="22" fill="#7c8697">Pick exact colours from any image, then solve a real paint mix</text>
+  <text x="80" y="262" font-family="system-ui, sans-serif" font-size="22" fill="#7c8697">with Kubelka–Munk physics — oil, acrylic, watercolour &amp; more.</text>
+
+  <g transform="translate(1050,315)">
+    <circle r="140" fill="none" stroke="#f2f4f8" stroke-width="3" opacity="0.9"/>
+    <path d="M0,-140 L0,140 Z" stroke="#f2f4f8" stroke-width="1.5" opacity="0.25"/>
+    <path d="M-140,0 L140,0 Z" stroke="#f2f4f8" stroke-width="1.5" opacity="0.25"/>
+    <circle r="140" fill="url(#wheel)" opacity="0.92"/>
+    <circle r="60" fill="#111318" stroke="#f2f4f8" stroke-width="2"/>
+    <circle r="60" fill="none" stroke="#f2f4f8" stroke-width="1.5" opacity="0.25"/>
+  </g>
+  <defs>
+    <radialGradient id="wheel">
+      <stop offset="0%" stop-color="#e04a4a"/>
+      <stop offset="20%" stop-color="#e0a24a"/>
+      <stop offset="40%" stop-color="#bcd63a"/>
+      <stop offset="60%" stop-color="#3aa66e"/>
+      <stop offset="80%" stop-color="#3a6ea6"/>
+      <stop offset="100%" stop-color="#8a4aa6"/>
+    </radialGradient>
+  </defs>
+</svg>
