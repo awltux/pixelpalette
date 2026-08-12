@@ -1,0 +1,341 @@
+/* ============================================================
+   mixing.js - Kubelka-Munk paint mixing.
+   - Reflectance spectra are synthesised from each paint's hex.
+   - Opaque media: KM (K/S ratio) solved with NNLS.
+   - Glazing media (watercolour): exponential absorption model.
+   Exposed on window.Mixing (and module.exports for Node tests).
+   ============================================================ */
+(function (global) {
+  'use strict';
+
+  const Color = global.Color || require('./color.js');
+
+  /* ---------- wavelength grid & CIE 1931 2° CMFs ---------- */
+  const STEP = 10;
+  const WLS = [];
+  for (let l = 380; l <= 730; l += STEP) WLS.push(l);   // 36 samples
+
+  /* x_bar, y_bar, z_bar at 10nm (CIE 1931 2° observer) */
+  const CMF = [
+    [0.001368, 0.000039, 0.006450], [0.004243, 0.000120, 0.020050],
+    [0.014310, 0.000396, 0.067850], [0.043510, 0.001210, 0.207400],
+    [0.134380, 0.004000, 0.645600], [0.283900, 0.011600, 1.385600],
+    [0.348280, 0.023000, 1.747060], [0.336200, 0.038000, 1.772110],
+    [0.290800, 0.060000, 1.669200], [0.195360, 0.090980, 1.287640],
+    [0.095640, 0.139020, 0.812950], [0.032010, 0.208020, 0.465180],
+    [0.004900, 0.323000, 0.272000], [0.009300, 0.503000, 0.158200],
+    [0.063270, 0.710000, 0.078250], [0.165500, 0.862000, 0.042160],
+    [0.290400, 0.954000, 0.020300], [0.433450, 0.994950, 0.008750],
+    [0.594500, 0.995000, 0.003900], [0.762100, 0.952000, 0.002100],
+    [0.916300, 0.870000, 0.001650], [1.026300, 0.757000, 0.001100],
+    [1.062200, 0.631000, 0.000800], [1.002600, 0.503000, 0.000340],
+    [0.854450, 0.381000, 0.000190], [0.642400, 0.265000, 0.000050],
+    [0.447900, 0.175000, 0.000020], [0.283500, 0.107000, 0.000000],
+    [0.164900, 0.061000, 0.000000], [0.087400, 0.032000, 0.000000],
+    [0.046770, 0.017000, 0.000000], [0.022700, 0.008210, 0.000000],
+    [0.011359, 0.004102, 0.000000], [0.005790, 0.002091, 0.000000],
+    [0.002899, 0.001047, 0.000000], [0.001440, 0.000520, 0.000000],
+  ];
+
+  /* normalised integration weights so a flat R=1 maps to D65 white */
+  function integrateWeights() {
+    const sumX = CMF.reduce((a, r) => a + r[0], 0) * STEP;
+    const sumY = CMF.reduce((a, r) => a + r[1], 0) * STEP;
+    const sumZ = CMF.reduce((a, r) => a + r[2], 0) * STEP;
+    return CMF.map(r => [
+      r[0] * STEP * 0.95047 / sumX,
+      r[1] * STEP * 1.0 / sumY,
+      r[2] * STEP * 1.08883 / sumZ,
+    ]);
+  }
+  const W = integrateWeights();
+  const N = WLS.length;
+
+  function spectrumToRgb(R) {
+    let x = 0, y = 0, z = 0;
+    for (let i = 0; i < N; i++) {
+      x += R[i] * W[i][0];
+      y += R[i] * W[i][1];
+      z += R[i] * W[i][2];
+    }
+    const lin = Color.xyzToLinear(x, y, z);
+    return Color.linearToRgb(lin.r, lin.g, lin.b);
+  }
+
+  /* ---------- reflectance synthesis from hex ---------- */
+  const R_CACHE = new Map();
+
+  /* Gaussian basis functions over wavelength grid */
+  const BASIS = (() => {
+    const centres = [];
+    for (let c = 380; c <= 730; c += 15) centres.push(c);
+    const SIG = 46;
+    return centres.map(c => WLS.map(l => Math.exp(-0.5 * Math.pow((l - c) / SIG, 2))));
+  })();
+
+  function synthesizeReflectance(hex) {
+    if (R_CACHE.has(hex)) return R_CACHE.get(hex);
+    const rgb = Color.hexToRgb(hex);
+    const lin = Color.rgbToLinear(rgb.r, rgb.g, rgb.b);
+    const xyz = Color.linearToXyz(lin.r, lin.g, lin.b);
+
+    // bases = gaussians + a constant (white/scattering) column
+    const J = BASIS.length;
+    const M = [[], [], []];
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j <= J; j++) {
+        let s = 0;
+        const basis = j < J ? BASIS[j] : WLS.map(() => 1);
+        for (let l = 0; l < N; l++) s += W[l][i] * basis[l];
+        M[i].push(s);
+      }
+    }
+    // non-negative weights: NNLS on M^T w = xyz
+    const AT = [M[0], M[1], M[2]];
+    const w = nnls(AT, [xyz.x, xyz.y, xyz.z]);
+
+    const R = new Array(N).fill(0);
+    for (let l = 0; l < N; l++) {
+      let s = 0;
+      for (let j = 0; j < J; j++) s += BASIS[j][l] * w[j];
+      s += w[J]; // constant basis
+      R[l] = Math.max(0.015, Math.min(0.985, s));
+    }
+    R_CACHE.set(hex, R);
+    return R;
+  }
+
+  /* ---------- linear algebra ---------- */
+  function solveLinear(A, b) {
+    const n = b.length;
+    const M = A.map((row, i) => row.concat([b[i]]));
+    for (let col = 0; col < n; col++) {
+      let piv = col;
+      for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+      [M[col], M[piv]] = [M[piv], M[col]];
+      const pv = M[col][col];
+      if (Math.abs(pv) < 1e-12) continue;
+      for (let r = 0; r < n; r++) {
+        if (r === col) continue;
+        const f = M[r][col] / pv;
+        for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
+      }
+    }
+    const x = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) x[i] = M[i][n] / (M[i][i] || 1e-12);
+    return x;
+  }
+
+  /* ---------- non-negative least squares (Lawson-Hanson) ---------- */
+  function nnls(A, b) {
+    const m = A.length, n = A[0].length;
+    const x = new Array(n).fill(0);
+    const active = new Array(n).fill(false);
+    const w = new Array(n).fill(0);
+    let iter = 0;
+    const maxIter = Math.max(40, n * 30);
+
+    while (iter++ < maxIter) {
+      for (let j = 0; j < n; j++) {
+        let s = 0;
+        for (let i = 0; i < m; i++) s += A[i][j] * (b[i] - dotRow(A, x, i));
+        w[j] = s;
+      }
+      let jStar = -1, maxW = 1e-12;
+      for (let j = 0; j < n; j++) if (!active[j] && w[j] > maxW) { maxW = w[j]; jStar = j; }
+      if (jStar === -1) break;
+
+      active[jStar] = true;
+      let z = solveActive(A, b, active);
+      while (z.some((v, j) => active[j] && v <= 0)) {
+        let alpha = Infinity, remove = -1;
+        for (let j = 0; j < n; j++) {
+          if (active[j] && z[j] <= 0 && (x[j] - z[j]) > 1e-12) {
+            const a = x[j] / (x[j] - z[j]);
+            if (a < alpha) { alpha = a; remove = j; }
+          }
+        }
+        if (remove === -1) break;
+        for (let j = 0; j < n; j++) if (active[j]) x[j] += alpha * (z[j] - x[j]);
+        active[remove] = false;
+        z = solveActive(A, b, active);
+      }
+      for (let j = 0; j < n; j++) if (active[j]) x[j] = z[j];
+    }
+    return x;
+  }
+
+  function dotRow(A, x, i) {
+    let s = 0;
+    for (let j = 0; j < x.length; j++) s += A[i][j] * x[j];
+    return s;
+  }
+
+  function solveActive(A, b, active) {
+    const n = A[0].length;
+    const idx = [];
+    for (let j = 0; j < n; j++) if (active[j]) idx.push(j);
+    const out = new Array(n).fill(0);
+    const k = idx.length;
+    if (k === 0) return out;
+    const G = Array.from({ length: k }, () => new Array(k).fill(0));
+    const d = new Array(k).fill(0);
+    for (let i = 0; i < k; i++) {
+      for (let j = i; j < k; j++) {
+        let s = 0;
+        for (let r = 0; r < A.length; r++) s += A[r][idx[i]] * A[r][idx[j]];
+        G[i][j] = G[j][i] = s;
+      }
+      let s = 0;
+      for (let r = 0; r < A.length; r++) s += A[r][idx[i]] * b[r];
+      d[i] = s;
+    }
+    const z = solveLinear(G, d);
+    for (let i = 0; i < k; i++) out[idx[i]] = z[i];
+    return out;
+  }
+
+  /* ---------- Kubelka-Munk physics ---------- */
+  const KM_K = (R) => 0.5 * (1 - R) * (1 - R) / R;
+
+  function scatterOf(hex) {
+    const rgb = Color.hexToRgb(hex);
+    const lin = Color.rgbToLinear(rgb.r, rgb.g, rgb.b);
+    const L = 0.2126 * lin.r + 0.7152 * lin.g + 0.0722 * lin.b;
+    return Math.max(0.2, Math.min(2, 0.25 + 1.7 * L));
+  }
+
+  function kmReflectance(K, S) {
+    const ks = K / S;
+    return 1 + ks - Math.sqrt(ks * ks + 2 * ks);
+  }
+
+  /* Build solver rows: returns { A, b } given per-paint coefficients. */
+  function buildProblem(paints, medium, targetRgb) {
+    const paperHex = medium.paper || '#FFFFFF';
+    const R_paper = synthesizeReflectance(paperHex);
+    const R_target = synthesizeReflectance(Color.rgbToHex(targetRgb.r, targetRgb.g, targetRgb.b));
+
+    const rows = [];
+    const cols = paints.length;
+    const A = [], b = [];
+
+    if (medium.type === 'glaze') {
+      // A_i(l) = -0.5 ln(R_i / R_paper); b(l) = 0.5 ln(R_paper / R_target)
+      const coefs = paints.map(p => {
+        const Rp = synthesizeReflectance(p.hex);
+        return WLS.map((_, l) => -0.5 * Math.log(Math.max(0.02, Rp[l]) / Math.max(0.02, R_paper[l])));
+      });
+      for (let l = 0; l < N; l++) {
+        const wt = W[l][1]; // luminance weight
+        const row = coefs.map(c => c[l] * wt);
+        A.push(row);
+        b.push(0.5 * Math.log(Math.max(0.02, R_paper[l]) / Math.max(0.02, R_target[l])) * wt);
+      }
+    } else {
+      // opaque KM: minimise sum f_i (K_i - t S_i) where t = target K/S
+      const t = WLS.map((_, l) => KM_K(Math.max(0.02, R_target[l])));
+      const K = paints.map(p => {
+        const Rp = synthesizeReflectance(p.hex);
+        const S = scatterOf(p.hex);
+        return WLS.map((_, l) => KM_K(Math.max(0.02, Rp[l])) * S);
+      });
+      const S = paints.map(p => scatterOf(p.hex));
+      for (let l = 0; l < N; l++) {
+        const wt = W[l][1];
+        A.push(K.map((row, i) => (row[l] - t[l] * S[i]) * wt));
+        b.push(0);
+      }
+    }
+
+    // sum-to-1 constraint (heavily weighted) - applies to opaque media only.
+    // For glazing, total pigment concentration is a free dilution variable.
+    if (medium.type !== 'glaze') {
+      const WS = 8;
+      A.push(new Array(cols).fill(WS));
+      b.push(WS);
+    }
+
+    return { A, b };
+  }
+
+  function mixReflectance(paints, ratios, medium) {
+    const R_paper = synthesizeReflectance(medium.paper || '#FFFFFF');
+    const n = paints.length;
+    const R = new Array(N).fill(0);
+
+    if (medium.type === 'glaze') {
+      // R = R_paper * exp(-2 * sum f_i A_i)
+      for (let l = 0; l < N; l++) {
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+          const Rp = synthesizeReflectance(paints[i].hex);
+          sum += ratios[i] * (-0.5 * Math.log(Math.max(0.02, Rp[l]) / Math.max(0.02, R_paper[l])));
+        }
+        R[l] = R_paper[l] * Math.exp(-2 * sum);
+      }
+    } else {
+      let K = new Array(N).fill(0);
+      let S = 0;
+      for (let i = 0; i < n; i++) {
+        const Rp = synthesizeReflectance(paints[i].hex);
+        const Si = scatterOf(paints[i].hex);
+        S += ratios[i] * Si;
+        for (let l = 0; l < N; l++) K[l] += ratios[i] * KM_K(Math.max(0.02, Rp[l])) * Si;
+      }
+      for (let l = 0; l < N; l++) R[l] = kmReflectance(Math.max(1e-6, K[l]), Math.max(1e-6, S));
+      // composite with ground
+      const op = medium.opacity != null ? medium.opacity : 0.95;
+      for (let l = 0; l < N; l++) R[l] = op * R[l] + (1 - op) * R_paper[l];
+    }
+    return R;
+  }
+
+  function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+  /* ---------- public API ---------- */
+  const Mixing = {
+    spectrumToRgb,
+    synthesizeReflectance,
+
+    solve(paints, targetRgb, medium) {
+      const { A, b } = buildProblem(paints, medium, targetRgb);
+      let f = nnls(A, b);
+      // opaque media are used at full strength (sum = 1).
+      // glazing keeps raw pigment loadings (dilution is free).
+      if (medium.type !== 'glaze') {
+        const total = f.reduce((a, v) => a + v, 0);
+        if (total > 1e-9) f = f.map(v => v / total); else f = f.map(() => 0);
+      }
+      const conc = f.reduce((a, v) => a + v, 0);
+
+      const mixR = mixReflectance(paints, f, medium);
+      const mixRgb = spectrumToRgb(mixR);
+      const mixHex = Color.rgbToHex(mixRgb.r, mixRgb.g, mixRgb.b);
+      const deltaE = Color.deltaE(targetRgb, mixRgb);
+      const sum = conc || 1;
+      return { ratios: f, conc, normalized: f.map(v => v / sum), mixRgb, mixHex, deltaE };
+    },
+
+    /* recompute mix colour from recipe amounts - for slider editing.
+       amounts are in "fraction of full strength" units (0..1).
+       opaque media are renormalised to sum 1; glaze keeps raw amounts. */
+    mixColour(paints, amounts, medium) {
+      const f = amounts.map(v => Math.max(0, Math.min(1, v)));
+      let used = f;
+      if (medium.type !== 'glaze') {
+        const tot = f.reduce((a, v) => a + v, 0) || 1;
+        used = f.map(v => v / tot);
+      }
+      const mixRgb = spectrumToRgb(mixReflectance(paints, used, medium));
+      return { mixRgb, mixHex: Color.rgbToHex(mixRgb.r, mixRgb.g, mixRgb.b) };
+    },
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = Mixing;
+    module.exports.__internal = { synthesizeReflectance, spectrumToRgb, nnls, buildProblem };
+  } else {
+    global.Mixing = Mixing;
+  }
+})(typeof window !== 'undefined' ? window : globalThis);

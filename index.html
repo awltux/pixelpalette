@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111318">
+<meta name="description" content="Pixel Palette - pick colours from any image and mix them from real paint palettes.">
+<title>Pixel Palette — colour picker &amp; paint mixer</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="12" cy="12" r="3.4" fill="currentColor"/>
+    </svg>
+    <h1 data-i18n="appName">Pixel Palette</h1>
+  </div>
+  <div class="header-actions">
+    <button id="btn-theme" class="btn btn-ghost" type="button" data-i18n="btnTheme" aria-label="Toggle dark / light theme">Theme</button>
+    <button id="btn-tour" class="btn btn-ghost" type="button" data-i18n="btnTour" aria-label="Replay the guided tour" hidden>Tour</button>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <section class="canvas-panel">
+    <div class="toolbar">
+      <button id="btn-open" class="btn btn-primary" type="button" data-i18n="btnOpen">Open image</button>
+      <input type="file" id="file-input" accept="image/*" hidden>
+      <span class="toolbar-sep" aria-hidden="true"></span>
+      <button id="btn-zoom-out" class="btn" type="button" aria-label="Zoom out">−</button>
+      <button id="btn-zoom-in" class="btn" type="button" aria-label="Zoom in">+</button>
+      <button id="btn-fit" class="btn" type="button" data-i18n="btnFit">Fit</button>
+      <button id="btn-reset" class="btn" type="button" data-i18n="btnReset">Reset</button>
+      <span class="hint" data-i18n="canvasHint">Drag to pan · scroll / pinch to zoom · arrow keys nudge</span>
+    </div>
+
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="canvas" aria-label="Image canvas" tabindex="0"></canvas>
+    </div>
+
+    <!-- Ad slot: below-canvas leaderboard (AdSense placeholder - drop in publisher code later) -->
+    <div class="ad-slot ad-leader" id="ad-leader">
+      <span class="ad-tag" data-i18n="adTag">Advertisement</span>
+      <!--
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+           data-ad-slot="0000000000"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+      -->
+    </div>
+  </section>
+
+  <aside class="side-panel">
+
+    <section class="panel reticle-panel" id="panel-reticle">
+      <h2 data-i18n="panelReticle">Sampler</h2>
+      <div class="control-grid">
+        <label for="reticle-size" class="ctrl">
+          <span class="ctrl-label" data-i18n="reticleSize">Reticle size</span>
+          <input type="range" id="reticle-size" min="24" max="200" step="1" value="96">
+          <output id="reticle-size-val">96 px</output>
+        </label>
+        <label for="magnifier-zoom" class="ctrl">
+          <span class="ctrl-label" data-i18n="magnifierZoom">Magnifier zoom</span>
+          <input type="range" id="magnifier-zoom" min="4" max="32" step="1" value="10">
+          <output id="magnifier-zoom-val">10×</output>
+        </label>
+      </div>
+
+      <div class="nav-grid" role="group" aria-label="Fine navigation">
+        <span></span>
+        <button class="nav-btn" data-nav="up" type="button" aria-label="Nudge up">▲</button>
+        <span></span>
+        <button class="nav-btn" data-nav="left" type="button" aria-label="Nudge left">◀</button>
+        <span class="nav-cap" data-i18n="navTitle">Fine control</span>
+        <button class="nav-btn" data-nav="right" type="button" aria-label="Nudge right">▶</button>
+        <span></span>
+        <button class="nav-btn" data-nav="down" type="button" aria-label="Nudge down">▼</button>
+        <span></span>
+      </div>
+
+      <div class="magnifier" data-i18n-attr="aria-label:magnifierLabel">
+        <canvas id="magnifier-canvas" width="220" height="220" aria-label="Magnified view"></canvas>
+        <span class="magnifier-label" data-i18n="magnifierLabel">Magnified</span>
+      </div>
+    </section>
+
+    <section class="panel readout-panel" id="panel-readout">
+      <h2 data-i18n="panelReadout">Colour</h2>
+      <div class="swatch-row">
+        <div class="swatch" id="colour-swatch" aria-hidden="true"></div>
+        <div class="swatch-info">
+          <div class="readout-row">
+            <span class="fmt">HEX</span>
+            <code id="hex-val">#000000</code>
+            <button class="copy" data-copy="hex" type="button" data-i18n="copy">Copy</button>
+          </div>
+          <div class="readout-row">
+            <span class="fmt">RGB</span>
+            <code id="rgb-val">0, 0, 0</code>
+            <button class="copy" data-copy="rgb" type="button" data-i18n="copy">Copy</button>
+          </div>
+          <div class="readout-row">
+            <span class="fmt">HSL</span>
+            <code id="hsl-val">0°, 0%, 0%</code>
+            <button class="copy" data-copy="hsl" type="button" data-i18n="copy">Copy</button>
+          </div>
+          <div class="readout-row">
+            <span class="fmt">CMYK</span>
+            <code id="cmyk-val">0, 0, 0, 100</code>
+            <button class="copy" data-copy="cmyk" type="button" data-i18n="copy">Copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="history" id="history">
+        <h3 data-i18n="history">History</h3>
+        <div class="history-strip" id="history-strip"></div>
+      </div>
+    </section>
+
+    <section class="panel mix-panel" id="panel-mix">
+      <h2 data-i18n="panelMix">Paint mixing</h2>
+      <div class="mix-top">
+        <label for="palette-select" class="ctrl-label" data-i18n="palette">Palette</label>
+        <select id="palette-select"></select>
+        <button id="btn-dup-palette" class="btn btn-ghost" type="button" data-i18n="btnDuplicatePalette" title="Duplicate palette">Duplicate</button>
+        <button id="btn-edit-palette" class="btn btn-ghost" type="button" data-i18n="btnEditPalette">Edit</button>
+      </div>
+
+      <div class="mix-compare">
+        <div class="mix-swatch">
+          <div class="mix-swatch-sq" id="mix-swatch"></div>
+          <span data-i18n="mixSwatch">Mixed</span>
+        </div>
+        <div class="mix-swatch">
+          <div class="mix-swatch-sq" id="target-swatch"></div>
+          <span data-i18n="targetSwatch">Target</span>
+        </div>
+      </div>
+      <div class="delta" id="mix-delta"></div>
+
+      <div class="mix-list" id="mix-list"></div>
+      <button id="btn-resolve" class="btn btn-ghost" type="button" data-i18n="btnResolve">Re-solve mix</button>
+    </section>
+
+    <!-- Ad slot: sidebar rectangle (AdSense placeholder) -->
+    <div class="ad-slot ad-sidebar" id="ad-sidebar">
+      <span class="ad-tag" data-i18n="adTag">Advertisement</span>
+      <!--
+      <ins class="adsbygoogle"
+           style="display:inline-block;width:300px;height:250px"
+           data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+           data-ad-slot="0000000001"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+      -->
+    </div>
+
+  </aside>
+</main>
+
+<footer class="app-footer">
+  <span data-i18n="footer">Pick a colour. Mix a paint. Make art.</span>
+</footer>
+
+<!-- Palette editor modal -->
+<div class="overlay" id="palette-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="palette-overlay-title">
+    <h2 id="palette-overlay-title" data-i18n="paletteEditTitle">Edit palette</h2>
+    <div class="palette-name-row">
+      <label for="palette-name-input" class="ctrl-label" data-i18n="paletteName">Palette name</label>
+      <input type="text" id="palette-name-input" spellcheck="false">
+    </div>
+    <div class="palette-edit" id="palette-edit"></div>
+    <div class="modal-actions">
+      <button id="palette-add" class="btn" type="button" data-i18n="paletteAdd">Add paint</button>
+      <button id="palette-reset" class="btn btn-ghost" type="button" data-i18n="paletteReset">Reset to default</button>
+      <button id="palette-delete" class="btn btn-danger" type="button" data-i18n="paletteDelete" hidden>Delete palette</button>
+      <span class="spacer"></span>
+      <button id="palette-close" class="btn btn-primary" type="button" data-i18n="paletteDone">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tutorial / app-driver overlay (built by js/tutorial.js) -->
+<div class="tutorial-root" id="tutorial-root" hidden></div>
+
+<noscript><p style="padding:1rem">This app requires JavaScript.</p></noscript>
+
+<script src="js/i18n.js"></script>
+<script src="js/color.js"></script>
+<script src="js/palettes.js"></script>
+<script src="js/demo-image.js"></script>
+<script src="js/image-loader.js"></script>
+<script src="js/canvas.js"></script>
+<script src="js/reticle.js"></script>
+<script src="js/readout.js"></script>
+<script src="js/mixing.js"></script>
+<script src="js/mix-ui.js"></script>
+<script src="js/history.js"></script>
+<script src="js/palette-editor.js"></script>
+<script src="js/tutorial.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
