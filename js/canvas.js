@@ -47,6 +47,7 @@
     if (img) {
       const s = getState().view;
       ctx.save();
+      if (global.CP.blurFilter) ctx.filter = global.CP.blurFilter();
       ctx.translate(cssW / 2, cssH / 2);
       ctx.scale(s.scale, s.scale);
       ctx.translate(-s.cx, -s.cy);

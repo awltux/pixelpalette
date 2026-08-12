@@ -12,6 +12,8 @@
       btnTour: 'Tour',
       btnOpen: 'Open image',
       btnReset: 'Reset',
+      btnSoften: 'Soften',
+      softenRadius: 'Soften radius',
       btnResolve: 'Re-solve mix',
       btnEditPalette: 'Edit',
       canvasHint: 'Drag to pan · scroll / pinch to zoom · arrow keys nudge',

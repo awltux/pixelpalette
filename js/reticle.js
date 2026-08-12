@@ -182,6 +182,7 @@
     ctx.beginPath();
     ctx.arc(cx, cy, Rl, 0, Math.PI * 2);
     ctx.clip();
+    if (global.CP.blurFilter) ctx.filter = global.CP.blurFilter();
     ctx.fillStyle = '#14161c';
     ctx.fillRect(cx - Rl, cy - Rl, Rl * 2, Rl * 2);
     ctx.drawImage(img, st.view.cx - sr / 2, st.view.cy - sr / 2, sr, sr, cx - dest / 2, cy - dest / 2, dest, dest);
@@ -214,7 +215,10 @@
       sr = P / st.zoom;
       dest = P;
     }
+    magnifierCtx.save();
+    if (global.CP.blurFilter) magnifierCtx.filter = global.CP.blurFilter();
     magnifierCtx.drawImage(st.image.canvas, st.view.cx - sr / 2, st.view.cy - sr / 2, sr, sr, (P - dest) / 2, (P - dest) / 2, dest, dest);
+    magnifierCtx.restore();
 
     // pixel grid when fully magnified
     if (renderW >= P) {

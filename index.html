@@ -34,6 +34,11 @@
       <button id="btn-zoom-out" class="btn" type="button" aria-label="Zoom out">−</button>
       <button id="btn-zoom-in" class="btn" type="button" aria-label="Zoom in">+</button>
       <button id="btn-reset" class="btn" type="button" data-i18n="btnReset">Reset</button>
+      <span class="toolbar-sep" aria-hidden="true"></span>
+      <label class="toolbar-slider" data-i18n-attr="aria-label:softenRadius">
+        <span class="toolbar-slider-label" data-i18n="btnSoften">Soften</span>
+        <input type="range" id="soften-radius" min="0" max="24" step="1" value="0">
+      </label>
       <span class="hint" data-i18n="canvasHint">Drag to pan · scroll / pinch to zoom · arrow keys nudge</span>
     </div>
 

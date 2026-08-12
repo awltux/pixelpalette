@@ -8,6 +8,13 @@
   const I18N = global.I18N;
 
   /* ---------- shared state ---------- */
+  const SOFTEN_KEY = 'pp.soften';
+  let soften = { radius: 0 };
+  try {
+    const raw = localStorage.getItem(SOFTEN_KEY);
+    if (raw) soften = Object.assign(soften, JSON.parse(raw));
+  } catch (e) { /* ignore */ }
+
   global.CP = global.CP || {};
   global.CP.state = {
     image: null,
@@ -15,7 +22,26 @@
     reticlePx: 96,
     zoom: 10,
     color: { r: 0, g: 0, b: 0 },
+    soften,
   };
+
+  /* ---------- soften view ---------- */
+  function blurFilter() {
+    return soften.radius > 0 ? `blur(${soften.radius}px)` : 'none';
+  }
+
+  function setSoftenRadius(px) {
+    soften.radius = Math.max(0, Math.min(24, Math.round(px)));
+    try { localStorage.setItem(SOFTEN_KEY, JSON.stringify(soften)); } catch (e) { /* ignore */ }
+    global.CP.Canvas.requestRender();
+    global.CP.Reticle.drawMagnifier();
+  }
+
+  function initSoften() {
+    const slider = document.getElementById('soften-radius');
+    slider.value = soften.radius;
+    slider.addEventListener('input', () => setSoftenRadius(parseFloat(slider.value)));
+  }
 
   /* ---------- theme ---------- */
   function applyTheme(theme) {
@@ -87,6 +113,9 @@
 
     initToolbar();
     initKeyboard();
+    initSoften();
+
+    global.CP.blurFilter = blurFilter;
 
     document.getElementById('btn-tour').hidden = false;
 
