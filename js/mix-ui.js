@@ -11,13 +11,28 @@
   const Mixing = global.Mixing;
 
   const els = {};
+  const FILTER_KEY = 'pp.filters';
   const ui = {
     paints: [],
     medium: null,
     recipe: [],
     target: null,
     result: null,
+    filter: loadFilters(),
   };
+
+  function loadFilters() {
+    const def = { lightfast: 'all', granulating: 'any', staining: 'any', maxPaints: 'all' };
+    try {
+      const raw = localStorage.getItem(FILTER_KEY);
+      if (raw) return Object.assign({}, def, JSON.parse(raw));
+    } catch (e) { /* ignore */ }
+    return def;
+  }
+
+  function saveFilters() {
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify(ui.filter)); } catch (e) { /* ignore */ }
+  }
 
   function init() {
     els.select = document.getElementById('palette-select');
@@ -29,9 +44,24 @@
     els.edit = document.getElementById('btn-edit-palette');
     els.dup = document.getElementById('btn-dup-palette');
     els.readout = document.getElementById('medium-readout');
+    els.filters = {
+      lightfast: document.getElementById('filter-lightfast'),
+      granulating: document.getElementById('filter-granulating'),
+      staining: document.getElementById('filter-staining'),
+      maxPaints: document.getElementById('filter-maxpaints'),
+    };
 
     populateSelect();
     loadPalette(Palettes.getSelected());
+
+    for (const key of Object.keys(els.filters)) {
+      els.filters[key].value = ui.filter[key] || 'all';
+      els.filters[key].addEventListener('change', () => {
+        ui.filter[key] = els.filters[key].value;
+        saveFilters();
+        if (ui.target) update(ui.target);
+      });
+    }
 
     els.select.addEventListener('change', () => {
       Palettes.setSelected(els.select.value);
@@ -71,6 +101,24 @@
     ui.paints = paints || [];
     ui.medium = medium;
     updateMediumReadout();
+    updateFilterVisibility();
+  }
+
+  /* granulation & staining only apply to glazing media (watercolour);
+     lightfast and max-paints apply to every medium */
+  function updateFilterVisibility() {
+    const glaze = ui.medium && ui.medium.type === 'glaze';
+    const isWcOnly = key => key === 'granulating' || key === 'staining';
+    document.querySelectorAll('.mix-filters .ff').forEach(el => {
+      const key = el.getAttribute('data-filter');
+      const show = glaze || !isWcOnly(key);
+      el.hidden = !show;
+      if (!show) {
+        ui.filter[key] = 'any';
+        if (els.filters[key]) els.filters[key].value = 'any';
+        saveFilters();
+      }
+    });
   }
 
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
@@ -105,6 +153,7 @@
     const { paints, medium } = Palettes.get(id);
     ui.paints = paints;
     ui.medium = medium;
+    updateFilterVisibility();
   }
 
   function refresh() {
@@ -113,16 +162,52 @@
     if (ui.target) update(ui.target);
   }
 
+  const LIGHTFAST_RANK = { I: 1, II: 2, III: 3, IV: 4 };
+  const STAIN_RANK = { None: 0, Low: 1, Medium: 2, High: 3 };
+
+  /* paints that pass the active filters, with their indices in ui.paints */
+  function filterPaints() {
+    const f = ui.filter;
+    const indices = [];
+    ui.paints.forEach((p, i) => {
+      if (f.lightfast !== 'all') {
+        const rank = LIGHTFAST_RANK[p.lightfast] || 4;
+        const min = LIGHTFAST_RANK[f.lightfast] || 1;
+        if (rank < min) return;
+      }
+      if (f.granulating === 'yes' && !p.granulating) return;
+      if (f.granulating === 'no' && p.granulating) return;
+      if (f.staining === 'no-high' && (STAIN_RANK[p.staining] || 0) >= 3) return;
+      if (f.staining === 'no-med-high' && (STAIN_RANK[p.staining] || 0) >= 2) return;
+      indices.push(i);
+    });
+    return { indices, paints: indices.map(i => ui.paints[i]) };
+  }
+
   function update(targetRgb) {
     ui.target = targetRgb;
     if (!ui.paints.length) return;
-    const res = Mixing.solve(ui.paints, targetRgb, ui.medium);
+    const avail = filterPaints();
+    ui.recipe = ui.paints.map(() => 0);
+    if (!avail.paints.length) {
+      ui.result = null;
+      render();
+      return;
+    }
+    const res = Mixing.solve(avail.paints, targetRgb, ui.medium, maxPaints());
+    avail.indices.forEach((idx, j) => { ui.recipe[idx] = res.ratios[j]; });
     ui.result = res;
-    ui.recipe = res.ratios.slice();
     render();
   }
 
+  function maxPaints() {
+    const v = ui.filter.maxPaints;
+    const n = parseInt(v, 10);
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+
   function deltaText() {
+    if (!ui.result) return I18N.t('noPaintsMatch');
     let s = `${I18N.t('deltaE')}: ${ui.result.deltaE.toFixed(1)}`;
     if (ui.medium.type === 'glaze') {
       s += `  ·  ${I18N.t('wash')}: ${Math.round(Math.min(100, ui.result.conc * 100))}%`;
@@ -132,7 +217,7 @@
 
   function render() {
     els.targetSwatch.style.background = Color.rgbToHex(ui.target.r, ui.target.g, ui.target.b);
-    els.mixSwatch.style.background = ui.result.mixHex;
+    els.mixSwatch.style.background = ui.result ? ui.result.mixHex : '#333';
     els.delta.textContent = deltaText();
 
     // top paints by amount
@@ -223,7 +308,7 @@
     if (!entries.length) {
       const note = document.createElement('div');
       note.className = 'hist-empty';
-      note.textContent = '—';
+      note.textContent = ui.result ? '—' : I18N.t('noPaintsMatch');
       els.list.appendChild(note);
     }
   }

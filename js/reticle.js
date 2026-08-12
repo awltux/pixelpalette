@@ -6,12 +6,14 @@
   'use strict';
 
   const MIN_SIZE = 24, MAX_SIZE = 200;
+  const MIN_ZOOM = 4, MAX_ZOOM = 32;
   let sizeSlider, sizeOut, zoomSlider, zoomOut, magnifierCanvas, magnifierCtx;
 
   let resizeState = null;
   let sampleCanvas = null;
   let fxQueued = false;
   let lastFxRgb = null;
+  let magnifyDrag = null;
 
   const HANDLE = 12; // hit radius for corner handles (px)
 
@@ -252,6 +254,53 @@
 
     sizeSlider.addEventListener('input', () => setSize(parseFloat(sizeSlider.value), true));
     zoomSlider.addEventListener('input', () => setZoom(parseFloat(zoomSlider.value), true));
+
+    /* ---- mouse / touch controls on the magnifier ---- */
+    magnifierCanvas.style.touchAction = 'none';
+
+    magnifierCanvas.addEventListener('pointerdown', (e) => {
+      if (!getState().image) return;
+      magnifierCanvas.setPointerCapture(e.pointerId);
+      magnifyDrag = { x: e.clientX, y: e.clientY };
+      e.preventDefault();
+    });
+    magnifierCanvas.addEventListener('pointermove', (e) => {
+      if (!magnifyDrag) return;
+      const dx = e.clientX - magnifyDrag.x;
+      const dy = e.clientY - magnifyDrag.y;
+      magnifyDrag.x = e.clientX;
+      magnifyDrag.y = e.clientY;
+      dragSample(dx, dy);
+      e.preventDefault();
+    });
+    magnifierCanvas.addEventListener('pointerup', () => { magnifyDrag = null; });
+    magnifierCanvas.addEventListener('pointercancel', () => { magnifyDrag = null; });
+    magnifierCanvas.addEventListener('wheel', (e) => {
+      if (!getState().image) return;
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0016);
+      setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, getState().zoom * factor)));
+    }, { passive: false });
+  }
+
+  /* drag on the magnifier pans the sample point: 1 screen px on the
+     magnified display equals 1/zoom image px */
+  function dragSample(dxScreen, dyScreen) {
+    const st = getState();
+    if (!st.image) return;
+    const rect = magnifierCanvas.getBoundingClientRect();
+    const scale = (rect.width || magnifierCanvas.width) / magnifierCanvas.width;
+    const perPx = st.zoom * scale;
+    if (perPx <= 0) return;
+    st.view.cx -= dxScreen / perPx;
+    st.view.cy -= dyScreen / perPx;
+    const { w, h } = global.CP.Canvas.getSize();
+    const halfW = w / 2 / st.view.scale;
+    const halfH = h / 2 / st.view.scale;
+    st.view.cx = Math.max(-halfW, Math.min(st.image.width + halfW, st.view.cx));
+    st.view.cy = Math.max(-halfH, Math.min(st.image.height + halfH, st.view.cy));
+    global.CP.Canvas.render();
+    sample();
   }
 
   const Reticle = {

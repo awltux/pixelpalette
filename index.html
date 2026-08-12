@@ -33,7 +33,6 @@
       <span class="toolbar-sep" aria-hidden="true"></span>
       <button id="btn-zoom-out" class="btn" type="button" aria-label="Zoom out">−</button>
       <button id="btn-zoom-in" class="btn" type="button" aria-label="Zoom in">+</button>
-      <button id="btn-fit" class="btn" type="button" data-i18n="btnFit">Fit</button>
       <button id="btn-reset" class="btn" type="button" data-i18n="btnReset">Reset</button>
       <span class="hint" data-i18n="canvasHint">Drag to pan · scroll / pinch to zoom · arrow keys nudge</span>
     </div>
@@ -137,6 +136,46 @@
         <button id="btn-edit-palette" class="btn btn-ghost" type="button" data-i18n="btnEditPalette">Edit</button>
       </div>
       <div class="medium-readout" id="medium-readout"></div>
+
+      <div class="mix-filters">
+        <div class="mix-filters-title" data-i18n="filtersTitle">Paint filters</div>
+        <label class="ff" data-filter="lightfast">
+          <span data-i18n="filterLightfast">Lightfast</span>
+          <select id="filter-lightfast">
+            <option value="all" data-i18n="filterAll">All</option>
+            <option value="II">&ge; II</option>
+            <option value="III">&ge; III</option>
+            <option value="IV">&ge; IV</option>
+          </select>
+        </label>
+        <label class="ff" data-filter="granulating">
+          <span data-i18n="filterGranulating">Granulating</span>
+          <select id="filter-granulating">
+            <option value="any" data-i18n="filterAny">Any</option>
+            <option value="yes" data-i18n="filterGranYes">Granulating</option>
+            <option value="no" data-i18n="filterGranNo">Non-granulating</option>
+          </select>
+        </label>
+        <label class="ff" data-filter="staining">
+          <span data-i18n="filterStaining">Staining</span>
+          <select id="filter-staining">
+            <option value="any" data-i18n="filterAny">Any</option>
+            <option value="no-high" data-i18n="filterStainNoHigh">Exclude High</option>
+            <option value="no-med-high" data-i18n="filterStainNoMed">Exclude Medium+</option>
+          </select>
+        </label>
+        <label class="ff" data-filter="maxPaints">
+          <span data-i18n="filterMaxPaints">Max paints</span>
+          <select id="filter-maxpaints">
+            <option value="all" data-i18n="filterAll">All</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+          </select>
+        </label>
+      </div>
 
       <div class="mix-compare">
         <div class="mix-swatch">

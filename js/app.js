@@ -40,7 +40,6 @@
 
   /* ---------- toolbar ---------- */
   function initToolbar() {
-    document.getElementById('btn-fit').addEventListener('click', () => global.CP.Canvas.fit());
     document.getElementById('btn-reset').addEventListener('click', () => global.CP.Canvas.reset());
     document.getElementById('btn-zoom-in').addEventListener('click', () => global.CP.Canvas.zoomIn());
     document.getElementById('btn-zoom-out').addEventListener('click', () => global.CP.Canvas.zoomOut());

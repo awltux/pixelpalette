@@ -219,7 +219,8 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   background:
     repeating-conic-gradient(#2a2f3d 0% 25%, #20242f 0% 50%) 0 0 / 14px 14px;
 }
-#magnifier-canvas { width: 100%; height: 100%; display: block; }
+#magnifier-canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+#magnifier-canvas:active { cursor: grabbing; }
 .magnifier-label {
   position: absolute; left: 8px; top: 6px;
   font-size: .62rem; text-transform: uppercase; letter-spacing: .05em;
@@ -303,6 +304,29 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   line-height: 1.4;
   margin: -4px 0 10px;
 }
+.mix-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.mix-filters-title {
+  grid-column: 1 / -1;
+  font-size: .72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.ff { display: grid; gap: 3px; }
+.ff[hidden] { display: none; }
+.ff > span { font-size: .66rem; color: var(--text-dim); }
+.ff select {
+  width: 100%;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: 7px;
+  padding: 5px 6px; font-size: .76rem; font-family: inherit;
+}
+.ff select:focus-visible { outline: 2px solid var(--accent); }
 .mix-top select {
   flex: 1;
   background: var(--panel-2); color: var(--text);

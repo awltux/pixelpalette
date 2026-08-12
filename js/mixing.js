@@ -336,7 +336,8 @@
     spectrumToRgb,
     synthesizeReflectance,
 
-    solve(paints, targetRgb, medium) {
+    /* unconstrained least-squares solve, returns ratios aligned to paints */
+    _solveInternal(paints, targetRgb, medium) {
       const { A, b } = buildProblem(paints, medium, targetRgb);
       let f = nnls(A, b);
       // opaque media are used at full strength (sum = 1).
@@ -344,6 +345,35 @@
       if (medium.type !== 'glaze') {
         const total = f.reduce((a, v) => a + v, 0);
         if (total > 1e-9) f = f.map(v => v / total); else f = f.map(() => 0);
+      }
+      return f;
+    },
+
+    /* solve, optionally restricted to at most maxPaints paints (0 = unlimited).
+       uses greedy support selection: pick the top contributors, re-solve on
+       just those, and drop any that go to zero - repeat until stable. */
+    solve(paints, targetRgb, medium, maxPaints) {
+      let f = this._solveInternal(paints, targetRgb, medium);
+      const n = paints.length;
+      if (maxPaints && maxPaints >= 1 && maxPaints < n) {
+        let support = f.map((v, i) => ({ v, i }))
+          .filter(x => x.v > 1e-9)
+          .sort((a, b) => b.v - a.v)
+          .slice(0, maxPaints)
+          .map(x => x.i);
+        for (let pass = 0; pass < 5 && support.length; pass++) {
+          const active = support.map(i => paints[i]);
+          const fr = this._solveInternal(active, targetRgb, medium);
+          const full = paints.map(() => 0);
+          support.forEach((orig, j) => { full[orig] = fr[j]; });
+          f = full;
+          const next = full.map((v, i) => ({ v, i }))
+            .filter(x => x.v > 1e-9)
+            .sort((a, b) => b.v - a.v)
+            .map(x => x.i);
+          if (next.join(',') === support.join(',')) break;
+          support = next;
+        }
       }
       const conc = f.reduce((a, v) => a + v, 0);
 
