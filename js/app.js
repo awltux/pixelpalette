@@ -1,3 +1,21 @@
+/*
+   Pixel Palette - colour picker & paint mixer
+   Copyright (C) 2026 Awltux Limited
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU Affero General Public License as published
+   by the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU Affero General Public License for more details.
+
+   You should have received a copy of the GNU Affero General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 /* ============================================================
    app.js - bootstrap: shared state, theme, toolbar, keyboard
    navigation, module init, demo + auto-tour on first visit.
@@ -113,13 +131,68 @@
   /* ---------- consent ---------- */
   function initConsent() {
     global.CP.Consent.init();
-    document.getElementById('btn-privacy').addEventListener('click', () => global.CP.Consent.showBanner());
+    document.getElementById('btn-privacy').addEventListener('click', () => {
+      document.getElementById('privacy-overlay').hidden = false;
+    });
+    document.getElementById('privacy-close').addEventListener('click', () => {
+      document.getElementById('privacy-overlay').hidden = true;
+    });
+    const overlay = document.getElementById('privacy-overlay');
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.hidden = true; });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !overlay.hidden) overlay.hidden = true;
+    });
   }
 
   /* ---------- legal / safety notice ---------- */
   function initDisclaimer() {
     global.CP.Disclaimer.init();
     document.getElementById('btn-disclaimer').addEventListener('click', () => global.CP.Disclaimer.open());
+  }
+
+  /* ---------- pane divider / side-panel width ---------- */
+  const SIDE_W_KEY = 'pp.sideW';
+  let dragState = null;
+
+  function applySideW(w) {
+    const clamped = Math.max(300, Math.min(720, Math.round(w)));
+    document.getElementById('app-main').style.setProperty('--side-w', clamped + 'px');
+    try { localStorage.setItem(SIDE_W_KEY, String(clamped)); } catch (e) { /* ignore */ }
+    if (global.CP.Canvas) global.CP.Canvas.fit();
+  }
+
+  function initPaneDivider() {
+    const divider = document.getElementById('pane-divider');
+    if (!divider) return;
+
+    try {
+      const saved = parseFloat(localStorage.getItem(SIDE_W_KEY));
+      if (saved > 0) applySideW(saved);
+    } catch (e) { /* ignore */ }
+
+    divider.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      divider.setPointerCapture(e.pointerId);
+      const startW = parseFloat(getComputedStyle(document.getElementById('app-main')).getPropertyValue('--side-w')) || 360;
+      dragState = { startX: e.clientX, startW };
+      divider.classList.add('dragging');
+    });
+
+    divider.addEventListener('pointermove', (e) => {
+      if (!dragState) return;
+      const w = dragState.startW - (e.clientX - dragState.startX);
+      document.getElementById('app-main').style.setProperty('--side-w', Math.max(300, Math.min(720, Math.round(w))) + 'px');
+    });
+
+    const end = () => {
+      if (!dragState) return;
+      const w = parseFloat(getComputedStyle(document.getElementById('app-main')).getPropertyValue('--side-w')) || 360;
+      dragState = null;
+      divider.classList.remove('dragging');
+      applySideW(w);
+    };
+    divider.addEventListener('pointerup', end);
+    divider.addEventListener('pointercancel', end);
   }
 
   /* ---------- boot ---------- */
@@ -141,6 +214,7 @@
     initKeyboard();
     initSoften();
     initInfo();
+    initPaneDivider();
 
     global.CP.blurFilter = blurFilter;
 

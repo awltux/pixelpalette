@@ -1,3 +1,21 @@
+/*
+   Pixel Palette - colour picker & paint mixer
+   Copyright (C) 2026 Pixel Palette contributors
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU Affero General Public License as published
+   by the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU Affero General Public License for more details.
+
+   You should have received a copy of the GNU Affero General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 /* ============================================================
    i18n - simple string table. English default; add locales by
    copying the 'en' object and registering under a new code.
@@ -18,7 +36,7 @@
       btnResolve: 'Re-solve mix',
       btnEditPalette: 'Edit',
       canvasHint: 'Drag to pan · scroll / pinch to zoom · arrow keys nudge',
-      adTag: 'Advertisement',
+      adTag: 'Advertisement placeholder',
       panelReticle: 'Sampler',
       reticleSize: 'Reticle size',
       magnifierZoom: 'Magnifier zoom',
@@ -152,6 +170,18 @@
       faqQ5: 'Where does my image data go?',
       faqA5: 'Nowhere. Pixel Palette is fully client-side: your images and paints never leave your device.',
       consentReopen: 'Privacy',
+      privacyTitle: 'Privacy declaration',
+      privacyDataTitle: 'What data we store',
+      privacyData: 'Pixel Palette runs entirely in your browser. We do not operate any server-side accounts, do not require registration, and do not collect, transmit or store any personal data on remote systems. The only data ever written is saved locally on your own device using your browser\u2019s storage.',
+      privacyImagesTitle: 'Your images stay on your device',
+      privacyImages: 'When you open an image, it is processed locally and never uploaded. No image data leaves your device at any point.',
+      privacyLocalTitle: 'Local storage on your device',
+      privacyLocal: 'We use your browser\u2019s local storage to remember your preferences and saved work, including your theme choice, filter settings, the side-panel width, colour history, custom palettes, the legal-notice acknowledgement and the consent status below. This data stays on your device and can be removed by clearing your browser\u2019s site data.',
+      privacyCookiesTitle: 'Cookies and tracking',
+      privacyCookies: 'Pixel Palette itself sets no tracking cookies and uses no analytics or advertising networks. If non-essential services (such as advertising) are ever enabled in the future, you will be asked for consent first and can opt out at any time using the consent banner.',
+      privacyContactTitle: 'Contact',
+      privacyContact: 'If you have questions about this privacy declaration, you can reach us at awltux.games@gmail.com.',
+      privacyDone: 'Done',
       consentNotice: 'Pixel Palette only stores your settings on your device — nothing is tracked or shared, and no images ever leave your browser.',
       consentGotIt: 'Got it',
       consentLearnMore: 'Learn more',

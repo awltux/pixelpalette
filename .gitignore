@@ -1,0 +1,26 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Node (none required, but keep installs out)
+node_modules/
+
+# Local server / deploy tooling
+dist/
+build/
+public/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+
+# Tests (local harness only)
+/tmp/opencode/

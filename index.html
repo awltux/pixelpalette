@@ -1,3 +1,21 @@
+<!--
+   Pixel Palette - colour picker & paint mixer
+   Copyright (C) 2026 Awltux Limited
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU Affero General Public License as published
+   by the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU Affero General Public License for more details.
+
+   You should have received a copy of the GNU Affero General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -106,7 +124,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
   </div>
 </header>
 
-<main class="app-main">
+<main class="app-main" id="app-main">
 
   <section class="canvas-panel">
     <div class="toolbar">
@@ -130,7 +148,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 
     <!-- Ad slot: below-canvas leaderboard (AdSense placeholder - drop in publisher code later) -->
     <div class="ad-slot ad-leader" id="ad-leader">
-      <span class="ad-tag" data-i18n="adTag">Advertisement</span>
+      <span class="ad-tag" data-i18n="adTag">Advertisement placeholder</span>
       <!--
       <ins class="adsbygoogle"
            style="display:block"
@@ -141,9 +159,11 @@ Google Search Console verification: paste the meta tag here after adding the sit
       <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
       -->
     </div>
-  </section>
+    </section>
 
-  <aside class="side-panel">
+    <div class="pane-divider" id="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize the side panel"></div>
+
+    <aside class="side-panel">
 
     <section class="panel reticle-panel" id="panel-reticle">
       <h2 data-i18n="panelReticle">Sampler</h2>
@@ -294,7 +314,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 
     <!-- Ad slot: sidebar rectangle (AdSense placeholder) -->
     <div class="ad-slot ad-sidebar" id="ad-sidebar">
-      <span class="ad-tag" data-i18n="adTag">Advertisement</span>
+      <span class="ad-tag" data-i18n="adTag">Advertisement placeholder</span>
       <!--
       <ins class="adsbygoogle"
            style="display:inline-block;width:300px;height:250px"
@@ -419,6 +439,39 @@ Google Search Console verification: paste the meta tag here after adding the sit
 
 <!-- Consent / privacy banner (populated by js/consent.js) -->
 <div class="consent-root" id="consent-root" hidden></div>
+
+<!-- Privacy declaration modal (static, crawlable content) -->
+<div class="overlay" id="privacy-overlay" hidden>
+  <div class="modal info-modal" role="dialog" aria-modal="true" aria-labelledby="privacy-overlay-title">
+    <h2 id="privacy-overlay-title" data-i18n="privacyTitle">Privacy declaration</h2>
+    <div class="info-content">
+      <section>
+        <h3 data-i18n="privacyDataTitle">What data we store</h3>
+        <p data-i18n="privacyData">Pixel Palette runs entirely in your browser. We do not operate any server-side accounts, do not require registration, and do not collect, transmit or store any personal data on remote systems. The only data ever written is saved locally on your own device using your browser&rsquo;s storage.</p>
+      </section>
+      <section>
+        <h3 data-i18n="privacyImagesTitle">Your images stay on your device</h3>
+        <p data-i18n="privacyImages">When you open an image, it is processed locally and never uploaded. No image data leaves your device at any point.</p>
+      </section>
+      <section>
+        <h3 data-i18n="privacyLocalTitle">Local storage on your device</h3>
+        <p data-i18n="privacyLocal">We use your browser&rsquo;s local storage to remember your preferences and saved work, including your theme choice, filter settings, the side-panel width, colour history, custom palettes, the legal-notice acknowledgement and the consent status below. This data stays on your device and can be removed by clearing your browser&rsquo;s site data.</p>
+      </section>
+      <section>
+        <h3 data-i18n="privacyCookiesTitle">Cookies and tracking</h3>
+        <p data-i18n="privacyCookies">Pixel Palette itself sets no tracking cookies and uses no analytics or advertising networks. If non-essential services (such as advertising) are ever enabled in the future, you will be asked for consent first and can opt out at any time using the consent banner.</p>
+      </section>
+      <section>
+        <h3 data-i18n="privacyContactTitle">Contact</h3>
+        <p data-i18n="privacyContact">If you have questions about this privacy declaration, you can reach us at awltux.games@gmail.com.</p>
+      </section>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="privacy-close" class="btn btn-primary" type="button" data-i18n="privacyDone">Done</button>
+    </div>
+  </div>
+</div>
 
 <!-- Legal / safety notice gate (populated by js/disclaimer.js) -->
 <div class="overlay disclaimer-overlay" id="disclaimer-overlay" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title" hidden>
