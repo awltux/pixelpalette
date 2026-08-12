@@ -205,6 +205,26 @@
     return Math.max(0.2, Math.min(2, 0.25 + 1.7 * L));
   }
 
+  /* the colour a paint mixes with: glazing uses the undertone (what shows
+     through a thin wash); opaque matching uses the masstone (surface colour) */
+  function spectrumHex(p, glaze) {
+    if (glaze && p && p.undertone && /^#[0-9a-fA-F]{6}$/.test(p.undertone)) return p.undertone;
+    return (p && p.hex) || '#000000';
+  }
+
+  /* tinting strength scales a paint's pigment loading (K and S) */
+  function paintStrength(p) {
+    return (p && typeof p.strength === 'number' && isFinite(p.strength) && p.strength > 0) ? p.strength : 1;
+  }
+
+  /* covering power of a paint: 0-1 (0-100 stored in the palette, medium default fallback) */
+  function paintOpacity(p, medium) {
+    if (p && typeof p.opacity === 'number' && isFinite(p.opacity)) {
+      return Math.max(0, Math.min(1, p.opacity / 100));
+    }
+    return (medium && medium.opacity != null) ? medium.opacity : 0.95;
+  }
+
   function kmReflectance(K, S) {
     const ks = K / S;
     return 1 + ks - Math.sqrt(ks * ks + 2 * ks);
@@ -216,15 +236,16 @@
     const R_paper = synthesizeReflectance(paperHex);
     const R_target = synthesizeReflectance(Color.rgbToHex(targetRgb.r, targetRgb.g, targetRgb.b));
 
-    const rows = [];
     const cols = paints.length;
     const A = [], b = [];
 
     if (medium.type === 'glaze') {
       // A_i(l) = -0.5 ln(R_i / R_paper); b(l) = 0.5 ln(R_paper / R_target)
+      // strong pigments need a smaller loading, so absorb more per unit
       const coefs = paints.map(p => {
-        const Rp = synthesizeReflectance(p.hex);
-        return WLS.map((_, l) => -0.5 * Math.log(Math.max(0.02, Rp[l]) / Math.max(0.02, R_paper[l])));
+        const Rp = synthesizeReflectance(spectrumHex(p, true));
+        const s = paintStrength(p);
+        return WLS.map((_, l) => s * -0.5 * Math.log(Math.max(0.02, Rp[l]) / Math.max(0.02, R_paper[l])));
       });
       for (let l = 0; l < N; l++) {
         const wt = W[l][1]; // luminance weight
@@ -233,14 +254,17 @@
         b.push(0.5 * Math.log(Math.max(0.02, R_paper[l]) / Math.max(0.02, R_target[l])) * wt);
       }
     } else {
-      // opaque KM: minimise sum f_i (K_i - t S_i) where t = target K/S
+      // opaque KM: minimise sum f_i (K_i - t S_i) where t = target K/S.
+      // The mix is applied thickly (coverage ~ medium.opacity), so solve
+      // against the masstone target directly; per-paint covering power only
+      // affects the final composite.
       const t = WLS.map((_, l) => KM_K(Math.max(0.02, R_target[l])));
       const K = paints.map(p => {
-        const Rp = synthesizeReflectance(p.hex);
-        const S = scatterOf(p.hex);
+        const Rp = synthesizeReflectance(spectrumHex(p, false));
+        const S = scatterOf(p.hex) * paintStrength(p);
         return WLS.map((_, l) => KM_K(Math.max(0.02, Rp[l])) * S);
       });
-      const S = paints.map(p => scatterOf(p.hex));
+      const S = paints.map(p => scatterOf(p.hex) * paintStrength(p));
       for (let l = 0; l < N; l++) {
         const wt = W[l][1];
         A.push(K.map((row, i) => (row[l] - t[l] * S[i]) * wt));
@@ -259,6 +283,20 @@
     return { A, b };
   }
 
+  function mixOpacity(paints, ratios, medium) {
+    let opSum = 0, wtSum = 0;
+    for (let i = 0; i < paints.length; i++) {
+      opSum += ratios[i] * paintOpacity(paints[i], medium);
+      wtSum += ratios[i];
+    }
+    const weighted = wtSum > 0 ? opSum / wtSum : paintOpacity(null, medium);
+    if (medium.type === 'glaze') return 1;
+    // a mix is applied thickly enough to at least hit the medium's coverage;
+    // more-opaque pigments (e.g. white) raise it beyond that.
+    const floor = (medium && medium.opacity != null) ? medium.opacity : 0.95;
+    return Math.max(weighted, floor);
+  }
+
   function mixReflectance(paints, ratios, medium) {
     const R_paper = synthesizeReflectance(medium.paper || '#FFFFFF');
     const n = paints.length;
@@ -269,8 +307,8 @@
       for (let l = 0; l < N; l++) {
         let sum = 0;
         for (let i = 0; i < n; i++) {
-          const Rp = synthesizeReflectance(paints[i].hex);
-          sum += ratios[i] * (-0.5 * Math.log(Math.max(0.02, Rp[l]) / Math.max(0.02, R_paper[l])));
+          const Rp = synthesizeReflectance(spectrumHex(paints[i], true));
+          sum += ratios[i] * paintStrength(paints[i]) * (-0.5 * Math.log(Math.max(0.02, Rp[l]) / Math.max(0.02, R_paper[l])));
         }
         R[l] = R_paper[l] * Math.exp(-2 * sum);
       }
@@ -278,14 +316,14 @@
       let K = new Array(N).fill(0);
       let S = 0;
       for (let i = 0; i < n; i++) {
-        const Rp = synthesizeReflectance(paints[i].hex);
-        const Si = scatterOf(paints[i].hex);
+        const Rp = synthesizeReflectance(spectrumHex(paints[i], false));
+        const Si = scatterOf(paints[i].hex) * paintStrength(paints[i]);
         S += ratios[i] * Si;
         for (let l = 0; l < N; l++) K[l] += ratios[i] * KM_K(Math.max(0.02, Rp[l])) * Si;
       }
       for (let l = 0; l < N; l++) R[l] = kmReflectance(Math.max(1e-6, K[l]), Math.max(1e-6, S));
-      // composite with ground
-      const op = medium.opacity != null ? medium.opacity : 0.95;
+      // composite with ground using fraction-weighted per-paint opacity
+      const op = mixOpacity(paints, ratios, medium);
       for (let l = 0; l < N; l++) R[l] = op * R[l] + (1 - op) * R_paper[l];
     }
     return R;

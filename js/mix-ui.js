@@ -28,6 +28,7 @@
     els.resolve = document.getElementById('btn-resolve');
     els.edit = document.getElementById('btn-edit-palette');
     els.dup = document.getElementById('btn-dup-palette');
+    els.readout = document.getElementById('medium-readout');
 
     populateSelect();
     loadPalette(Palettes.getSelected());
@@ -69,6 +70,34 @@
     const { paints, medium } = Palettes.get(id);
     ui.paints = paints || [];
     ui.medium = medium;
+    updateMediumReadout();
+  }
+
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  const camel = s => s.split('-').map(cap).join('');
+
+  function updateMediumReadout() {
+    if (!els.readout || !ui.medium) return;
+    const t = k => I18N.t(k);
+    const parts = [];
+    const m = ui.medium;
+    if (m.sheen) parts.push(`${t('propSheen')} ${t('sheen' + cap(m.sheen))}`);
+    if (m.dryingTime) parts.push(`${t('propDrying')} ${t('drying' + cap(m.dryingTime))}`);
+    if (m.diluent) parts.push(`${t('propDiluent')} ${t('diluent' + cap(m.diluent))}`);
+    if (m.wetWork) parts.push(`${t('propWet')} ${t('wet' + camel(m.wetWork))}`);
+    els.readout.textContent = parts.join(' · ');
+  }
+
+  function paintTooltip(p) {
+    const t = k => I18N.t(k);
+    const bits = [];
+    if (p.ci) bits.push(p.ci);
+    if (p.lightfast) bits.push(`${t('propLightfast')} ${p.lightfast}`);
+    if (typeof p.opacity === 'number') bits.push(`${t('propOpacity')} ${Math.round(p.opacity)}%`);
+    if (typeof p.strength === 'number' && p.strength !== 1) bits.push(`${t('propStrength')} ×${p.strength}`);
+    if (p.granulating) bits.push(t('propGranulating'));
+    if (p.staining && p.staining !== 'None') bits.push(`${t('propStaining')}: ${t('stain' + p.staining)}`);
+    return bits.join(' · ');
   }
 
   function reloadPaints() {
@@ -118,6 +147,8 @@
     entries.forEach((e, idx) => {
       const row = document.createElement('div');
       row.className = 'mix-item';
+      const tip = paintTooltip(e.paint);
+      row.title = tip || e.paint.hex;
 
       const chip = document.createElement('div');
       chip.className = 'mix-chip';

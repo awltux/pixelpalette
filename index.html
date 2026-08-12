@@ -120,7 +120,10 @@
         </div>
       </div>
       <div class="history" id="history">
-        <h3 data-i18n="history">History</h3>
+        <div class="history-head">
+          <h3 data-i18n="history">History</h3>
+          <button id="history-clear" class="btn btn-ghost btn-sm" type="button" data-i18n="historyClear" hidden>Clear</button>
+        </div>
         <div class="history-strip" id="history-strip"></div>
       </div>
     </section>
@@ -133,6 +136,7 @@
         <button id="btn-dup-palette" class="btn btn-ghost" type="button" data-i18n="btnDuplicatePalette" title="Duplicate palette">Duplicate</button>
         <button id="btn-edit-palette" class="btn btn-ghost" type="button" data-i18n="btnEditPalette">Edit</button>
       </div>
+      <div class="medium-readout" id="medium-readout"></div>
 
       <div class="mix-compare">
         <div class="mix-swatch">

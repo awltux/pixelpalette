@@ -34,6 +34,11 @@
   function makeRow(p, i) {
     const row = document.createElement('div');
     row.className = 'paint-edit';
+    const isWC = Palettes.get(currentId).medium.type === 'glaze';
+
+    /* line 1: identity */
+    const main = document.createElement('div');
+    main.className = 'pe-main';
 
     const colour = document.createElement('input');
     colour.type = 'color';
@@ -66,12 +71,89 @@
 
     colour.addEventListener('input', () => { hex.textContent = colour.value; });
 
-    row.appendChild(colour);
-    row.appendChild(name);
-    row.appendChild(brand);
-    row.appendChild(hex);
-    row.appendChild(del);
+    main.appendChild(colour);
+    main.appendChild(name);
+    main.appendChild(brand);
+    main.appendChild(hex);
+    main.appendChild(del);
+    row.appendChild(main);
+
+    /* line 2: artist properties */
+    const extra = document.createElement('div');
+    extra.className = 'pe-extra';
+
+    extra.appendChild(field(I18N.t('propStrength'), numberInput('pe-strength', p.strength, 0.1, 5, 0.1)));
+    extra.appendChild(field(I18N.t('propOpacity'), numberInput('pe-opacity', p.opacity, 0, 100, 1)));
+    extra.appendChild(field(I18N.t('propCi'), textInput('pe-ci', p.ci || '')));
+    extra.appendChild(field(I18N.t('propLightfast'), selectInput('pe-lf', ['I', 'II', 'III', 'IV'], p.lightfast || 'II')));
+    extra.appendChild(field(I18N.t('propUndertone'), colourInput('pe-undertone', p.undertone || p.hex)));
+    if (isWC) {
+      const gran = document.createElement('input');
+      gran.type = 'checkbox';
+      gran.className = 'pe-gran';
+      gran.checked = !!p.granulating;
+      const granWrap = document.createElement('label');
+      granWrap.className = 'pe-field pe-check';
+      const gl = document.createElement('span');
+      gl.textContent = I18N.t('propGranulating');
+      granWrap.appendChild(gl);
+      granWrap.appendChild(gran);
+      extra.appendChild(granWrap);
+      extra.appendChild(field(I18N.t('propStaining'), selectInput('pe-stain', ['None', 'Low', 'Medium', 'High'], p.staining || 'None')));
+    }
+
+    row.appendChild(extra);
     return row;
+  }
+
+  function field(label, input) {
+    const wrap = document.createElement('label');
+    wrap.className = 'pe-field';
+    const l = document.createElement('span');
+    l.textContent = label;
+    wrap.appendChild(l);
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  function numberInput(cls, value, min, max, step) {
+    const el = document.createElement('input');
+    el.type = 'number';
+    el.className = cls;
+    el.min = min;
+    el.max = max;
+    el.step = step;
+    if (typeof value === 'number' && isFinite(value)) el.value = value;
+    return el;
+  }
+
+  function textInput(cls, value) {
+    const el = document.createElement('input');
+    el.type = 'text';
+    el.className = cls;
+    el.value = value;
+    return el;
+  }
+
+  function colourInput(cls, value) {
+    const el = document.createElement('input');
+    el.type = 'color';
+    el.className = cls;
+    el.value = /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : '#000000';
+    return el;
+  }
+
+  function selectInput(cls, options, value) {
+    const el = document.createElement('select');
+    el.className = cls;
+    for (const o of options) {
+      const opt = document.createElement('option');
+      opt.value = o;
+      opt.textContent = o === 'None' ? I18N.t('stainNone') : o;
+      el.appendChild(opt);
+    }
+    el.value = options.includes(value) ? value : options[0];
+    return el;
   }
 
   function collect() {
@@ -82,7 +164,26 @@
       const colourEl = row.querySelector('.pe-colour');
       const n = nameEl.value.trim();
       const c = colourEl.value;
-      if (n || c) paints.push({ name: n || c, brand: brandEl.value.trim(), hex: c });
+      if (!n && !c) return;
+      const readNum = (el, d) => {
+        const v = parseFloat(el.value);
+        return isFinite(v) ? v : d;
+      };
+      const gran = row.querySelector('.pe-gran');
+      const stain = row.querySelector('.pe-stain');
+      const undertone = row.querySelector('.pe-undertone');
+      paints.push({
+        name: n || c,
+        brand: brandEl.value.trim(),
+        hex: c,
+        strength: readNum(row.querySelector('.pe-strength'), 1),
+        opacity: readNum(row.querySelector('.pe-opacity'), 100),
+        ci: row.querySelector('.pe-ci').value.trim(),
+        lightfast: row.querySelector('.pe-lf').value,
+        undertone: undertone ? undertone.value : (c || ''),
+        granulating: gran ? gran.checked : false,
+        staining: stain ? stain.value : 'None',
+      });
     });
     return paints;
   }

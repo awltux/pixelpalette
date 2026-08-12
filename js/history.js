@@ -9,7 +9,7 @@
   const KEY = 'pp.history';
   const MAX = 24;
 
-  let strip;
+  let strip, clearBtn;
   let items = [];
   let sampleTimer = null;
 
@@ -27,6 +27,7 @@
   function render() {
     if (!strip) return;
     strip.innerHTML = '';
+    if (clearBtn) clearBtn.hidden = items.length === 0;
     if (!items.length) {
       const empty = document.createElement('span');
       empty.className = 'hist-empty';
@@ -35,6 +36,9 @@
       return;
     }
     items.forEach((hex, i) => {
+      const item = document.createElement('span');
+      item.className = 'hist-item';
+
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'hist-swatch';
@@ -46,8 +50,33 @@
         const rgb = Color.hexToRgb(hex);
         global.CP.Reticle.setColorFromHistory(rgb);
       });
-      strip.appendChild(b);
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'hist-del';
+      del.textContent = '✕';
+      del.setAttribute('aria-label', I18N.t('historyDelete') + ' ' + hex);
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        remove(i);
+      });
+
+      item.appendChild(b);
+      item.appendChild(del);
+      strip.appendChild(item);
     });
+  }
+
+  function remove(i) {
+    items.splice(i, 1);
+    save();
+    render();
+  }
+
+  function clearAll() {
+    items = [];
+    save();
+    render();
   }
 
   function push(hex) {
@@ -70,10 +99,12 @@
 
   function init() {
     strip = document.getElementById('history-strip');
+    clearBtn = document.getElementById('history-clear');
+    if (clearBtn) clearBtn.addEventListener('click', clearAll);
     load();
     render();
   }
 
   global.CP = global.CP || {};
-  global.CP.History = { init, push, onSample, load, render };
+  global.CP.History = { init, push, onSample, load, render, remove, clearAll };
 })(window);
