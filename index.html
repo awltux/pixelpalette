@@ -221,8 +221,10 @@ Google Search Console verification: paste the meta tag here after adding the sit
       <div class="mix-top">
         <label for="palette-select" class="ctrl-label" data-i18n="palette">Palette</label>
         <select id="palette-select"></select>
-        <button id="btn-dup-palette" class="btn btn-ghost" type="button" data-i18n="btnDuplicatePalette" title="Duplicate palette">Duplicate</button>
-        <button id="btn-edit-palette" class="btn btn-ghost" type="button" data-i18n="btnEditPalette">Edit</button>
+        <span class="mix-top-actions">
+          <button id="btn-dup-palette" class="btn btn-ghost" type="button" data-i18n="btnDuplicatePalette" title="Duplicate palette">Duplicate</button>
+          <button id="btn-edit-palette" class="btn btn-ghost" type="button" data-i18n="btnEditPalette">Edit</button>
+        </span>
       </div>
       <div class="medium-readout" id="medium-readout"></div>
 
@@ -307,6 +309,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 
 <footer class="app-footer">
   <span data-i18n="footer">Pick a colour. Mix a paint. Make art.</span>
+  <button id="btn-disclaimer" class="btn btn-link" type="button" data-i18n="disclaimerReopen">Legal notice</button>
   <button id="btn-privacy" class="btn btn-link" type="button" data-i18n="consentReopen">Privacy</button>
 </footer>
 
@@ -417,6 +420,24 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <!-- Consent / privacy banner (populated by js/consent.js) -->
 <div class="consent-root" id="consent-root" hidden></div>
 
+<!-- Legal / safety notice gate (populated by js/disclaimer.js) -->
+<div class="overlay disclaimer-overlay" id="disclaimer-overlay" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title" hidden>
+  <div class="modal disclaimer-modal">
+    <h2 id="disclaimer-title" data-i18n="disclaimerTitle">Legal notice — paint safety</h2>
+    <div class="disclaimer-content">
+      <p data-i18n="disclaimerLead">Pixel Palette identifies some paints as toxic, for example pigments based on cadmium, cobalt, lead or chromium compounds. Please read this notice before using the app.</p>
+      <p data-i18n="disclaimerSds">The toxicity information is provided for convenience only. It is not a substitute for the manufacturer&rsquo;s Safety Data Sheet (SDS), the product label, or professional advice. Always follow the handling, ventilation and hygiene instructions for the specific paint brand and medium you use.</p>
+      <p data-i18n="disclaimerPractice">Keep paints out of the reach of children and away from food and drink. Wash your hands after painting. Avoid breathing dry pigment dust, and minimise skin and eye contact.</p>
+      <p data-i18n="disclaimerResponsibility">You are responsible for verifying the safety of the paints you buy. Pixel Palette flags paints as toxic in good faith, based on commonly reported pigment properties, and accepts no liability for any decisions you make using this information.</p>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="disclaimer-close" class="btn btn-ghost" type="button" data-i18n="disclaimerClose">Close</button>
+      <button id="disclaimer-accept" class="btn btn-primary" type="button" data-i18n="disclaimerAccept">I understand and accept</button>
+    </div>
+  </div>
+</div>
+
 <!-- Tutorial / app-driver overlay (built by js/tutorial.js) -->
 <div class="tutorial-root" id="tutorial-root" hidden></div>
 
@@ -424,6 +445,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 
 <script src="js/i18n.js"></script>
 <script src="js/consent.js"></script>
+<script src="js/disclaimer.js"></script>
 <script src="js/color.js"></script>
 <script src="js/palettes.js"></script>
 <script src="js/demo-image.js"></script>

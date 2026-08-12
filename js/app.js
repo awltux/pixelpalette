@@ -116,11 +116,18 @@
     document.getElementById('btn-privacy').addEventListener('click', () => global.CP.Consent.showBanner());
   }
 
+  /* ---------- legal / safety notice ---------- */
+  function initDisclaimer() {
+    global.CP.Disclaimer.init();
+    document.getElementById('btn-disclaimer').addEventListener('click', () => global.CP.Disclaimer.open());
+  }
+
   /* ---------- boot ---------- */
   function boot() {
     I18N.apply();
 
     initConsent();
+    initDisclaimer();
     global.CP.ImageLoader.init();
     global.CP.Canvas.init();
     global.CP.Reticle.init();
@@ -140,12 +147,19 @@
     document.getElementById('btn-tour').hidden = false;
 
     // demo image always on start; tour auto-plays on very first visit
+    // (after the legal notice is accepted)
     global.CP.ImageLoader.loadDemo();
     let toured = false;
     try { toured = localStorage.getItem('pp.toured') === '1'; } catch (e) { /* ignore */ }
-    if (!toured) {
+    const startTour = () => {
+      if (toured) return;
       try { localStorage.setItem('pp.toured', '1'); } catch (e) { /* ignore */ }
       setTimeout(() => global.CP.Tutorial.start(), 600);
+    };
+    if (global.CP.Disclaimer.required()) {
+      global.CP.Disclaimer.onAccept(startTour);
+    } else {
+      startTour();
     }
   }
 

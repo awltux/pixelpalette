@@ -300,7 +300,8 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .hist-empty { font-size: .78rem; color: var(--text-dim); }
 
 /* ---------- mixing ---------- */
-.mix-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mix-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mix-top-actions { display: inline-flex; align-items: center; gap: 8px; }
 .medium-readout {
   font-size: .72rem;
   color: var(--text-dim);
@@ -331,7 +332,8 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 }
 .ff select:focus-visible { outline: 2px solid var(--accent); }
 .mix-top select {
-  flex: 1;
+  flex: 1 1 140px;
+  min-width: 0;
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border-strong);
   border-radius: 8px; padding: 6px 8px; font-family: inherit; font-size: .86rem;
@@ -532,6 +534,13 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   cursor: pointer;
 }
 .app-footer .btn-link:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+
+/* ---------- legal / safety notice gate ---------- */
+.disclaimer-overlay { z-index: 100; }
+.disclaimer-modal { max-width: 540px; }
+.disclaimer-content p { margin: 0 0 10px; line-height: 1.5; }
+.disclaimer-content p:last-child { margin-bottom: 0; }
+.disclaimer-overlay .modal-actions { margin-top: 16px; }
 
 /* ---------- consent banner ---------- */
 .consent-root { position: fixed; inset: auto 0 0 0; z-index: 40; padding: 0 16px 12px; }

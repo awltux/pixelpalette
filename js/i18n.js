@@ -158,6 +158,14 @@
       consentPrompt: 'We use cookies to personalise ads and analyse traffic. Choose what you are comfortable with.',
       consentAcceptAll: 'Accept all',
       consentEssentialOnly: 'Essential only',
+      disclaimerReopen: 'Legal notice',
+      disclaimerTitle: 'Legal notice — paint safety',
+      disclaimerLead: 'Pixel Palette identifies some paints as toxic, for example pigments based on cadmium, cobalt, lead or chromium compounds. Please read this notice before using the app.',
+      disclaimerSds: 'The toxicity information is provided for convenience only. It is not a substitute for the manufacturer\u2019s Safety Data Sheet (SDS), the product label, or professional advice. Always follow the handling, ventilation and hygiene instructions for the specific paint brand and medium you use.',
+      disclaimerPractice: 'Keep paints out of the reach of children and away from food and drink. Wash your hands after painting. Avoid breathing dry pigment dust, and minimise skin and eye contact.',
+      disclaimerResponsibility: 'You are responsible for verifying the safety of the paints you buy. Pixel Palette flags paints as toxic in good faith, based on commonly reported pigment properties, and accepts no liability for any decisions you make using this information.',
+      disclaimerAccept: 'I understand and accept',
+      disclaimerClose: 'Close',
     },
   };
 
