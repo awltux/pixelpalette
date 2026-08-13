@@ -372,6 +372,7 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .gl-rgb i { background: linear-gradient(90deg, #f33, #3c3, #33f); }
 .gl-cmyk i { background: repeating-linear-gradient(90deg, var(--text-dim) 0 4px, transparent 4px 7px); height: 3px; }
 .gl-pal i { background: var(--accent); height: 10px; border-radius: 2px; }
+.gl-band i { width: 16px; height: 0; border-top: 2px dashed #4d8dff; }
 .gl-target i { background: #ffffff; border: 1px solid #1a2333; border-radius: 50%; width: 10px; height: 10px; }
 .gl-mix i { background: #1a2333; border: 2px solid #ffffff; border-radius: 50%; width: 8px; height: 8px; }
 .mix-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
