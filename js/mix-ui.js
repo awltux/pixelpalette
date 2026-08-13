@@ -147,6 +147,7 @@
     updateMediumReadout();
     updateFilterVisibility();
     renderGamut();
+    if (global.CP.GamutFilter) global.CP.GamutFilter.onPaletteChange();
   }
 
   function renderGamut() {
@@ -220,6 +221,7 @@
     ui.medium = medium;
     updateFilterVisibility();
     renderGamut();
+    if (global.CP.GamutFilter) global.CP.GamutFilter.onPaletteChange();
   }
 
   function refresh() {

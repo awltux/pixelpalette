@@ -226,6 +226,7 @@
     global.CP.Readout.init();
     global.CP.History.init();
     global.CP.MixUI.init();
+    global.CP.GamutFilter.init();
     global.CP.PaletteEditor.init();
     global.CP.Tutorial.init();
 

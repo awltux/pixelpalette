@@ -30,6 +30,7 @@
       btnTour: 'Tour',
       btnInfo: 'Info',
       btnOpen: 'Open image',
+      gamutFilterLimit: 'Limit to palette',
       btnReset: 'Reset',
       btnSoften: 'Soften',
       softenRadius: 'Soften radius',

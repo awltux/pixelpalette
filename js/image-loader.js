@@ -30,9 +30,10 @@
     off.height = h;
     const ctx = off.getContext('2d');
     ctx.drawImage(imgEl, 0, 0);
-    global.CP.state.image = { canvas: off, width: w, height: h };
+    global.CP.state.imageOriginal = { canvas: off, width: w, height: h };
     global.CP.Canvas.setImage(off, w, h);
     global.CP.Reticle.sample();
+    if (global.CP.GamutFilter) global.CP.GamutFilter.onImageLoaded();
   }
 
   function loadFile(file) {
@@ -49,9 +50,10 @@
 
   function loadDemo() {
     const canvas = global.DemoImage.generate(1600, 1000);
-    global.CP.state.image = { canvas, width: 1600, height: 1000 };
+    global.CP.state.imageOriginal = { canvas, width: 1600, height: 1000 };
     global.CP.Canvas.setImage(canvas, 1600, 1000);
     global.CP.Reticle.sample();
+    if (global.CP.GamutFilter) global.CP.GamutFilter.onImageLoaded();
   }
 
   function init() {

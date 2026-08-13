@@ -130,6 +130,10 @@ Google Search Console verification: paste the meta tag here after adding the sit
     <div class="toolbar">
       <button id="btn-open" class="btn btn-primary" type="button" data-i18n="btnOpen">Open image</button>
       <input type="file" id="file-input" accept="image/*" hidden>
+      <label class="toolbar-check">
+        <input type="checkbox" id="chk-gamut">
+        <span class="toolbar-check-label" data-i18n="gamutFilterLimit">Limit to palette</span>
+      </label>
       <span class="toolbar-sep" aria-hidden="true"></span>
       <button id="btn-zoom-out" class="btn" type="button" aria-label="Zoom out">−</button>
       <button id="btn-zoom-in" class="btn" type="button" aria-label="Zoom in">+</button>
@@ -534,6 +538,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <script src="js/readout.js"></script>
 <script src="js/mixing.js"></script>
 <script src="js/gamut.js"></script>
+<script src="js/gamut-filter.js"></script>
 <script src="js/mix-ui.js"></script>
 <script src="js/history.js"></script>
 <script src="js/palette-editor.js"></script>

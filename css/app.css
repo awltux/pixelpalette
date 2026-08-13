@@ -155,6 +155,8 @@ body {
 .toolbar-slider { display: inline-flex; align-items: center; gap: 6px; }
 .toolbar-slider-label { font-size: .78rem; color: var(--text-dim); white-space: nowrap; }
 .toolbar-slider input[type="range"] { width: 110px; margin: 0; }
+.toolbar-check { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
+.toolbar-check input { margin: 0; accent-color: var(--accent); }
 .hint { margin-left: auto; font-size: .78rem; color: var(--text-dim); }
 
 /* ---------- buttons ---------- */

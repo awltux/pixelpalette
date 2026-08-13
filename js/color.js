@@ -116,6 +116,19 @@
     return { L, a, b: b_ };
   };
 
+  Color.labToRgb = function (L, a, b) {
+    const finv = t => {
+      const t3 = t * t * t;
+      return t3 > 0.008856 ? t3 : (t - 16 / 116) / 7.787;
+    };
+    const fy = (L + 16) / 116;
+    const x = finv(fy + a / 500) * 0.95047;
+    const y = finv(fy) * 1.0;
+    const z = finv(fy - b / 200) * 1.08883;
+    const lin = Color.xyzToLinear(x, y, z);
+    return Color.linearToRgb(lin.r, lin.g, lin.b);
+  };
+
   /* CIE76 colour difference */
   Color.deltaE = function (rgb1, rgb2) {
     const l1 = Color.rgbToLab(rgb1.r, rgb1.g, rgb1.b);
