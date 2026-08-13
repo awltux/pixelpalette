@@ -65,6 +65,24 @@
     els.dup = document.getElementById('btn-dup-palette');
     els.readout = document.getElementById('medium-readout');
     els.gamutCanvas = document.getElementById('gamut-canvas');
+    els.bar = document.getElementById('result-bar');
+    els.barTarget = document.getElementById('rb-target');
+    els.barMix = document.getElementById('rb-mix');
+    els.barInfo = document.getElementById('rb-info');
+    els.barDot = document.getElementById('rb-dot');
+    if (els.bar) {
+      const scrollToMix = () => {
+        const panel = document.getElementById('panel-mix');
+        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+      els.bar.addEventListener('click', scrollToMix);
+      els.bar.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          scrollToMix();
+        }
+      });
+    }
     if (els.gamutCanvas && global.ResizeObserver) {
       gamutResize = new ResizeObserver(() => renderGamut());
       gamutResize.observe(els.gamutCanvas);
@@ -273,7 +291,26 @@
     return 'hard';
   }
 
+  /* sync the mobile sticky result bar with the current sample/recipe */
+  function updateStickyBar() {
+    if (!els.bar) return;
+    if (!ui.target || !ui.result || !ui.result.mixRgb) {
+      els.bar.hidden = true;
+      return;
+    }
+    els.bar.hidden = false;
+    els.barTarget.style.background = Color.rgbToHex(ui.target.r, ui.target.g, ui.target.b);
+    els.barMix.style.background = ui.result.mixHex || '#333';
+    els.barInfo.textContent = deltaText();
+    const inRange = global.CP.Gamut
+      && global.CP.Gamut.pointInside(ui.paints, ui.medium, ui.result.mixRgb);
+    els.barDot.classList.toggle('in', inRange);
+    els.barDot.classList.toggle('out', !inRange);
+    els.barDot.title = inRange ? I18N.t('gamutInRange') : I18N.t('gamutOutOfRange');
+  }
+
   function updateDifficulty() {
+    updateStickyBar();
     if (!ui.result) {
       els.delta.classList.remove('delta-good', 'delta-fair', 'delta-hard');
       els.delta.dataset.difficulty = '';

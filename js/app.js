@@ -195,6 +195,25 @@
     divider.addEventListener('pointercancel', end);
   }
 
+  /* collapse the Sampler / Colour panels on small screens so the mix
+     panel is reachable without long scrolling; always open on desktop */
+  function initMobilePanels() {
+    const mq = global.matchMedia ? global.matchMedia('(max-width: 900px)') : null;
+    if (!mq) return;
+    const reticle = document.getElementById('panel-reticle');
+    const readout = document.getElementById('panel-readout');
+    const apply = () => {
+      if (reticle) reticle.open = !mq.matches;
+      if (readout) readout.open = !mq.matches;
+    };
+    apply();
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', apply);
+    } else if (typeof mq.addListener === 'function') {
+      mq.addListener(apply);
+    }
+  }
+
   /* ---------- boot ---------- */
   function boot() {
     I18N.apply();
@@ -215,6 +234,7 @@
     initSoften();
     initInfo();
     initPaneDivider();
+    initMobilePanels();
 
     global.CP.blurFilter = blurFilter;
 

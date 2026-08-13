@@ -218,6 +218,28 @@ body {
   padding: 14px;
 }
 .panel h2 { margin: 0 0 12px; font-size: .92rem; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
+.panel summary {
+  margin: 0 0 12px;
+  font-size: .92rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+.panel summary::-webkit-details-marker { display: none; }
+.panel summary::after {
+  content: '▴';
+  font-size: .62rem;
+  color: var(--text-dim);
+  transition: transform .15s;
+}
+.panel[open] summary::after { transform: rotate(180deg); }
+.panel summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 .control-grid { display: grid; gap: 10px; }
 .ctrl { display: grid; gap: 4px; }
@@ -599,6 +621,45 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 }
 .app-footer .btn-link:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 
+/* ---------- mobile sticky result bar ---------- */
+.result-bar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  font-size: .78rem;
+  color: var(--text);
+  touch-action: manipulation;
+}
+.result-bar[hidden] { display: none; }
+.result-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rb-label {
+  font-size: .62rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-dim); white-space: nowrap;
+}
+.rb-swatch {
+  width: 28px; height: 28px; flex: none;
+  border-radius: 7px; border: 1px solid var(--border-strong);
+}
+.rb-target { outline: 1px solid rgba(255,255,255,.3); outline-offset: 1px; }
+.rb-arrow { color: var(--text-dim); font-size: .9rem; }
+.rb-info {
+  flex: 1; min-width: 0;
+  font-family: var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rb-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1px solid rgba(0,0,0,.4); }
+.rb-dot.in { background: var(--ok); }
+.rb-dot.out { background: #ff6b6b; }
+.rb-chevron { color: var(--text-dim); font-size: .66rem; }
+
 /* ---------- legal / safety notice gate ---------- */
 .disclaimer-overlay { z-index: 100; }
 .disclaimer-modal { max-width: 540px; }
@@ -634,12 +695,35 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
   body { display: block; height: auto; min-height: 100%; }
-  .app-main { display: block; padding-bottom: 44px; }
+  .app-main { display: block; padding-bottom: 64px; }
   .pane-divider { display: none; }
   .canvas-panel { height: auto; margin-bottom: 14px; }
   .canvas-wrap { flex: none; height: 52vh; min-height: 300px; }
   .side-panel { max-height: none; overflow: visible; }
   .hint { display: none; }
+  .app-footer { position: static; margin-bottom: 48px; }
+
+  /* mobile order: paint mixing first, then sampler, colour, ad */
+  .side-panel { display: flex; flex-direction: column; }
+  #panel-mix { order: 1; }
+  #panel-reticle { order: 2; }
+  #panel-readout { order: 3; }
+  #ad-sidebar { order: 4; }
+
+  /* keep the gamut wheel in view while dragging the mix sliders */
+  #panel-mix { display: flex; flex-direction: column; }
+  #panel-mix .mix-top { order: 1; }
+  #panel-mix .medium-readout { order: 2; }
+  #panel-mix .mix-compare { order: 3; }
+  #panel-mix .delta { order: 4; }
+  #panel-mix .mix-warning { order: 5; }
+  #panel-mix .gamut-block { order: 6; }
+  #panel-mix .mix-list { order: 7; }
+  #panel-mix .btn-resolve { order: 8; }
+  #panel-mix .mix-filters { order: 9; }
+}
+@media (min-width: 901px) {
+  .result-bar { display: none !important; }
 }
 
 @media (max-width: 480px) {
@@ -648,4 +732,12 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   .toolbar { gap: 6px; }
   .swatch-row { flex-direction: column; }
   .swatch { width: 100%; min-height: 56px; }
+
+  /* touch-target polish */
+  .btn { padding: 9px 14px; }
+  .nav-btn { width: 46px; height: 42px; }
+  .mix-item { grid-template-columns: 36px 1fr auto; padding: 8px; }
+  .mix-chip { width: 36px; height: 36px; }
+  .mix-item input[type="range"] { min-height: 30px; }
+  .mix-item-pct { font-size: .8rem; }
 }

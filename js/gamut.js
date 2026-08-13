@@ -173,6 +173,16 @@
     return data;
   }
 
+  /* true/false whether an RGB colour falls inside the palette's achieved
+     region: its Lab chroma at its hue must not exceed the boundary bucket
+     the sampler recorded for that hue (with a small tolerance so a mix that
+     lands right on the edge isn't flagged). */
+  function pointInside(paints, medium, rgb) {
+    const data = compute(paints, medium);
+    const lab = labOf(typeof rgb === 'string' ? Color.hexToRgb(rgb) : rgb);
+    return lab.chroma <= data.pal[hueIndex(lab.hue)] + 2;
+  }
+
   /* ---- canvas rendering ---- */
   function polar(cx, cy, radius, hueDeg, dpr) {
     const rad = ((hueDeg - 90) * Math.PI) / 180; // 0° = top (matches hue wheel)
@@ -295,6 +305,7 @@
     compute,
     render,
     positionOf,
+    pointInside,
     hueIndex,
     HUE_STEPS,
   };

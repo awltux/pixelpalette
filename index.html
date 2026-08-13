@@ -165,8 +165,8 @@ Google Search Console verification: paste the meta tag here after adding the sit
 
     <aside class="side-panel">
 
-    <section class="panel reticle-panel" id="panel-reticle">
-      <h2 data-i18n="panelReticle">Sampler</h2>
+    <details class="panel reticle-panel" id="panel-reticle" open>
+      <summary data-i18n="panelReticle">Sampler</summary>
       <div class="control-grid">
         <label for="reticle-size" class="ctrl">
           <span class="ctrl-label" data-i18n="reticleSize">Reticle size</span>
@@ -196,11 +196,11 @@ Google Search Console verification: paste the meta tag here after adding the sit
         <canvas id="magnifier-canvas" width="220" height="220" aria-label="Magnified view"></canvas>
         <span class="magnifier-label" data-i18n="magnifierLabel">Magnified</span>
       </div>
-    </section>
+    </details>
 
-    <section class="panel readout-panel" id="panel-readout">
+    <details class="panel readout-panel" id="panel-readout" open>
+      <summary data-i18n="panelReadout">Colour</summary>
       <div class="readout-area" id="readout-area">
-        <h2 data-i18n="panelReadout">Colour</h2>
         <div class="swatch-row">
           <div class="swatch" id="colour-swatch" aria-hidden="true"></div>
           <div class="swatch-info">
@@ -234,7 +234,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
         </div>
         <div class="history-strip" id="history-strip"></div>
       </div>
-    </section>
+    </details>
 
     <section class="panel mix-panel" id="panel-mix">
       <h2 data-i18n="panelMix">Paint mixing</h2>
@@ -342,6 +342,16 @@ Google Search Console verification: paste the meta tag here after adding the sit
 
   </aside>
 </main>
+
+<div class="result-bar" id="result-bar" role="button" tabindex="0" hidden>
+  <span class="rb-label" data-i18n="resultBarTitle">Show mix</span>
+  <span class="rb-swatch rb-target" id="rb-target"></span>
+  <span class="rb-arrow" aria-hidden="true">→</span>
+  <span class="rb-swatch rb-mix" id="rb-mix"></span>
+  <span class="rb-info" id="rb-info"></span>
+  <span class="rb-dot" id="rb-dot"></span>
+  <span class="rb-chevron" aria-hidden="true">▲</span>
+</div>
 
 <footer class="app-footer">
   <span data-i18n="footer">Pick a colour. Mix a paint. Make art.</span>
