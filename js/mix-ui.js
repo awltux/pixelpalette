@@ -114,7 +114,13 @@
     });
 
     els.resolve.addEventListener('click', () => {
-      if (ui.target) update(ui.target);
+      if (!ui.target || !ui.paints.length) return;
+      const avail = filterPaints();
+      if (!avail.paints.length) return;
+      const { res, pool } = pickSolve(avail, ui.target);
+      if (!res) return;
+      const current = ui.result ? ui.result.deltaE : Infinity;
+      if (effectiveDeltaE(res) < current) applyResult(res, pool);
     });
 
     els.edit.addEventListener('click', () => {
@@ -294,6 +300,30 @@
     return { res: Mixing.solve(pool.paints, targetRgb, ui.medium, maxPaints()), pool };
   }
 
+  function applyResult(res, pool) {
+    pool.indices.forEach((idx, j) => { ui.recipe[idx] = res.ratios[j]; });
+    ui.result = res;
+    // Degenerate-recipe guard: when a target is far outside the palette's
+    // achievable range the solver can collapse to a single unrelated pigment
+    // (e.g. a purple "solved" with 100% Burnt Umber). Treat that as a hard
+    // miss so the UI warns instead of presenting a confident recipe.
+    if (res.deltaE > 12) {
+      const used = res.ratios.filter((v) => v > 0.005).length;
+      if (used <= 1) ui.result = Object.assign({}, res, { deltaE: 999 });
+    }
+    render();
+    renderGamut();
+  }
+
+  /* effective ΔE for a solve result, after the degenerate-recipe guard */
+  function effectiveDeltaE(res) {
+    if (res.deltaE > 12) {
+      const used = res.ratios.filter((v) => v > 0.005).length;
+      if (used <= 1) return 999;
+    }
+    return res.deltaE;
+  }
+
   function update(targetRgb) {
     ui.target = targetRgb;
     if (!ui.paints.length) return;
@@ -312,18 +342,7 @@
       renderGamut();
       return;
     }
-    pool.indices.forEach((idx, j) => { ui.recipe[idx] = res.ratios[j]; });
-    ui.result = res;
-    // Degenerate-recipe guard: when a target is far outside the palette's
-    // achievable range the solver can collapse to a single unrelated pigment
-    // (e.g. a purple "solved" with 100% Burnt Umber). Treat that as a hard
-    // miss so the UI warns instead of presenting a confident recipe.
-    if (res.deltaE > 12) {
-      const used = res.ratios.filter((v) => v > 0.005).length;
-      if (used <= 1) ui.result = Object.assign({}, res, { deltaE: 999 });
-    }
-    render();
-    renderGamut();
+    applyResult(res, pool);
   }
 
   function maxPaints() {

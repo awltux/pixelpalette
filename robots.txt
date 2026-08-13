@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://pixelpalette.awltux.trade/sitemap.xml
+Sitemap: https://util.awltux.trade/pixelpalette/index.htmlsitemap.xml

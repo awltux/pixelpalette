@@ -139,7 +139,7 @@
     <!-- Call to Action / Website URL -->
     <g transform="translate(0, 460)">
       <path d="M 0 0 L 24 12 L 0 24 Z" fill="#448AFF" opacity="0" /> <!-- Spacer helper -->
-      <text x="0" y="0" fill="#58A6FF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" letter-spacing="1">utils.awltux.trade/pixelpalette</text>
+      <text x="0" y="0" fill="#58A6FF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" letter-spacing="1">util.awltux.trade/pixelpalette</text>
     </g>
   </g>
 </svg>
