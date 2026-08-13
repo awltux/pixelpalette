@@ -232,6 +232,11 @@
 
   const LIGHTFAST_RANK = { I: 1, II: 2, III: 3, IV: 4 };
   const STAIN_RANK = { None: 0, Low: 1, Medium: 2, High: 3 };
+  /* a mix's granulating character is set by its main colours: the granulating
+     filter applies to the dominant paints, not every paint. If granulating
+     pigments make up at least half the used mix (or, for non-granulating, less
+     than half), the filter is satisfied regardless of the minor tints. */
+  const GRAN_MAIN_SHARE = 0.5;
 
   /* paints that pass the active filters, with their indices in ui.paints */
   function filterPaints() {
@@ -243,8 +248,6 @@
         const min = LIGHTFAST_RANK[f.lightfast] || 1;
         if (rank < min) return;
       }
-      if (f.granulating === 'yes' && !p.granulating) return;
-      if (f.granulating === 'no' && p.granulating) return;
       if (f.staining === 'no-high' && (STAIN_RANK[p.staining] || 0) >= 3) return;
       if (f.staining === 'no-med-high' && (STAIN_RANK[p.staining] || 0) >= 2) return;
       if (f.toxic === 'no' && p.toxic) return;
@@ -252,6 +255,43 @@
       indices.push(i);
     });
     return { indices, paints: indices.map(i => ui.paints[i]) };
+  }
+
+  /* fraction of the used (non-trace) mix amount that is granulating */
+  function granulatingShare(ratios, paints) {
+    let gran = 0, used = 0;
+    for (let i = 0; i < ratios.length; i++) {
+      if (ratios[i] <= 0.005) continue;
+      used += ratios[i];
+      if (paints[i].granulating) gran += ratios[i];
+    }
+    return used > 0 ? gran / used : 0;
+  }
+
+  /* does this recipe satisfy the granulating filter, judged by the main
+     colours only (trace tints of the other kind are fine)? */
+  function granulatingMatches(ratios, paints) {
+    const f = ui.filter.granulating;
+    if (f !== 'yes' && f !== 'no') return true;
+    const share = granulatingShare(ratios, paints);
+    return f === 'yes' ? share >= GRAN_MAIN_SHARE : share < GRAN_MAIN_SHARE;
+  }
+
+  /* solve, honouring the granulating filter as a "main colours" constraint:
+     first try the full pool - if the natural mix already has the right
+     dominant character, keep it (minor tints stay free); otherwise fall
+     back to a pool restricted to the requested kind, so the filter is
+     never silently ignored. */
+  function pickSolve(avail, targetRgb) {
+    const f = ui.filter.granulating;
+    const res = Mixing.solve(avail.paints, targetRgb, ui.medium, maxPaints());
+    if (f !== 'yes' && f !== 'no') return { res, pool: avail };
+    if (granulatingMatches(res.ratios, avail.paints)) return { res, pool: avail };
+    const wantGran = f === 'yes';
+    const idxs = avail.indices.filter(idx => !!ui.paints[idx].granulating === wantGran);
+    if (!idxs.length) return { res: null, pool: avail };
+    const pool = { indices: idxs, paints: idxs.map(i => ui.paints[i]) };
+    return { res: Mixing.solve(pool.paints, targetRgb, ui.medium, maxPaints()), pool };
   }
 
   function update(targetRgb) {
@@ -265,8 +305,14 @@
       renderGamut();
       return;
     }
-    const res = Mixing.solve(avail.paints, targetRgb, ui.medium, maxPaints());
-    avail.indices.forEach((idx, j) => { ui.recipe[idx] = res.ratios[j]; });
+    const { res, pool } = pickSolve(avail, targetRgb);
+    if (!res) {
+      ui.result = null;
+      render();
+      renderGamut();
+      return;
+    }
+    pool.indices.forEach((idx, j) => { ui.recipe[idx] = res.ratios[j]; });
     ui.result = res;
     // Degenerate-recipe guard: when a target is far outside the palette's
     // achievable range the solver can collapse to a single unrelated pigment
