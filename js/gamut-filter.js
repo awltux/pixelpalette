@@ -87,10 +87,12 @@
      8-bit rounding can push a colour clipped to one hue bucket's
      boundary across into a neighbour bucket with a lower boundary;
      iterating re-checks until the pixel is inside (chroma can only
-     shrink, so it converges). Clipping to the strict boundary pal[idx]
+     shrink, so it converges). The boundary is interpolated to the
+     pixel's own lightness, so light saturated pixels are clipped like
+     the mixer would judge them. Clipping to the strict boundary
      always satisfies Gamut.pointInside, which allows its own +2.
      Hot path is allocation-light and uses the linear LUT above. */
-  function clipPixel(r, g, b, pal) {
+  function clipPixel(r, g, b, pals) {
     let cr = r, cg = g, cb = b;
     for (let iter = 0; iter < 8; iter++) {
       const lr = LIN_LUT[cr], lg = LIN_LUT[cg], lb = LIN_LUT[cb];
@@ -105,7 +107,8 @@
       const bv = 200 * (fy - fz);
       const chroma = Math.sqrt(av * av + bv * bv);
       if (chroma < 1e-9) break;
-      const maxChroma = pal[hueIndex(Math.atan2(bv, av) * 180 / Math.PI + 360)];
+      const hue = Math.atan2(bv, av) * 180 / Math.PI + 360;
+      const maxChroma = Gamut.boundaryAt(pals, L, hueIndex(hue));
       if (chroma <= maxChroma + 1e-6) break;
       const s = maxChroma / chroma;
       const na = av * s, nb = bv * s;
@@ -131,7 +134,7 @@
      progressively rather than in one late jump. */
   function filterCanvas(src, w, h, paints, medium, sig, t) {
     return new Promise((resolve) => {
-      const pal = Gamut.compute(paints, medium).pal;
+      const pals = Gamut.compute(paints, medium).pals;
       const out = document.createElement('canvas');
       out.width = w;
       out.height = h;
@@ -155,7 +158,7 @@
         for (let row = y; row < end; row++) {
           let i = row * w * 4;
           for (let x = 0; x < w; x++, i += 4, si += 4) {
-            const p = clipPixel(d[i], d[i + 1], d[i + 2], pal);
+            const p = clipPixel(d[i], d[i + 1], d[i + 2], pals);
             chunk[si] = p.r;
             chunk[si + 1] = p.g;
             chunk[si + 2] = p.b;

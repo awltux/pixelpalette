@@ -37,6 +37,15 @@
   const HUE_STEPS = 72;              // 5° buckets
   const STEP_DEG = 360 / HUE_STEPS;
 
+  /* The palette's achievable gamut depends on lightness as well as hue: for
+     glazing media high chroma is only reachable at dark lightness (full
+     strength pigment), so a single chroma-vs-hue envelope over-measures the
+     gamut and flags light saturated colours as "in range" when the mixer
+     cannot reproduce them. Record the boundary per lightness band instead
+     and interpolate at the colour's own L*. */
+  const L_BANDS = [20, 35, 50, 65, 80];
+  const NBANDS = L_BANDS.length;
+
   function labOf(rgb) {
     const l = Color.rgbToLab(rgb.r, rgb.g, rgb.b);
     return { L: l.L, chroma: Math.hypot(l.a, l.b), hue: (Math.atan2(l.b, l.a) * 180 / Math.PI + 360) % 360 };
@@ -54,6 +63,42 @@
     const lab = labOf(rgb);
     const i = hueIndex(lab.hue);
     if (lab.chroma > buckets[i]) buckets[i] = lab.chroma;
+  }
+
+  /* banded palette boundary: index = band * HUE_STEPS + hue */
+  function bandIndex(L) {
+    if (L <= L_BANDS[0]) return 0;
+    if (L >= L_BANDS[NBANDS - 1]) return NBANDS - 1;
+    return Math.floor((L - L_BANDS[0]) / (L_BANDS[1] - L_BANDS[0]));
+  }
+
+  /* record a mixed colour's chroma into the band for its own lightness */
+  function recordBanded(rgb, buckets) {
+    const lab = labOf(rgb);
+    const i = bandIndex(lab.L) * HUE_STEPS + hueIndex(lab.hue);
+    if (lab.chroma > buckets[i]) buckets[i] = lab.chroma;
+  }
+
+  /* like recordBanded but at an explicit hue index (the solver target's
+     bucket, whose hue can drift from where the mix actually lands) */
+  function recordBandedAt(rgb, buckets, hue) {
+    const lab = labOf(rgb);
+    const i = bandIndex(lab.L) * HUE_STEPS + hue;
+    if (lab.chroma > buckets[i]) buckets[i] = lab.chroma;
+  }
+
+  /* interpolate the banded boundary at a lightness between band centres */
+  function boundaryAt(pals, L, hue) {
+    if (L <= L_BANDS[0]) return pals[hue];
+    if (L >= L_BANDS[NBANDS - 1]) return pals[(NBANDS - 1) * HUE_STEPS + hue];
+    for (let b = 0; b < NBANDS - 1; b++) {
+      if (L >= L_BANDS[b] && L <= L_BANDS[b + 1]) {
+        const t = (L - L_BANDS[b]) / (L_BANDS[b + 1] - L_BANDS[b]);
+        return pals[b * HUE_STEPS + hue]
+          + (pals[(b + 1) * HUE_STEPS + hue] - pals[b * HUE_STEPS + hue]) * t;
+      }
+    }
+    return pals[(NBANDS - 1) * HUE_STEPS + hue];
   }
 
   /* --- sRGB gamut: max chroma per hue from pure hues --- */
@@ -89,13 +134,13 @@
 
   /* --- palette gamut: mix ratio samples through the real model --- */
   function paletteBoundary(paints, medium) {
-    const buckets = newBuckets();
+    const buckets = new Float64Array(NBANDS * HUE_STEPS);
     const n = paints.length;
     const glaze = medium.type === 'glaze';
 
     // singles (pair loops below include the 0/1 endpoints, so this is only
     // needed for the glaze "clear wash" point)
-    if (glaze) record(Mixing.synthesizeReflectance(medium.paper || '#FFFFFF'), buckets);
+    if (glaze) recordBanded(Mixing.synthesizeReflectance(medium.paper || '#FFFFFF'), buckets);
 
     // pairs at fine ratio steps (plus dilution for glazing media)
     const concs = glaze ? [0.3, 0.6, 1] : [1];
@@ -104,37 +149,42 @@
         for (let j = i + 1; j < n; j++) {
           for (const c of concs) {
             const R = Mixing.mixReflectance([paints[i], paints[j]], [r * c, (1 - r) * c], medium);
-            record(Mixing.spectrumToRgb(R), buckets);
+            recordBanded(Mixing.spectrumToRgb(R), buckets);
           }
         }
       }
     }
 
-    // Solve the palette against saturated targets on a hue grid. The pair
-    // sampling alone under-measures the achievable gamut because the solver
-    // can combine 3-4 paints at ratios the coarse grid never visits, so a
-    // valid mix can sit outside the drawn region. Recording the solver's own
-    // best mixes into the boundary keeps it honest with what the app shows.
+    // Solve the palette against saturated targets on a hue × lightness grid.
+    // The pair sampling alone under-measures the achievable gamut because the
+    // solver can combine 3-4 paints at ratios the coarse grid never visits,
+    // so a valid mix can sit outside the drawn region. Recording the solver's
+    // own best mixes into the boundary keeps it honest with what the app
+    // shows. Each solve lands in the band of the mix's own lightness.
     for (let h = 0; h < 360; h += 30) {
-      for (const l of [40, 60]) {
+      for (const l of L_BANDS) {
         const res = Mixing.solve(paints, Color.hslToRgb(h, 100, l), medium);
         const lab = labOf(res.mixRgb);
         const targetIdx = Math.floor((h % 360) / STEP_DEG) % HUE_STEPS;
         const mixIdx = Math.floor((lab.hue % 360) / STEP_DEG) % HUE_STEPS;
-        if (lab.chroma > buckets[targetIdx]) buckets[targetIdx] = lab.chroma;
-        if (lab.chroma > buckets[mixIdx]) buckets[mixIdx] = lab.chroma;
+        recordBandedAt(res.mixRgb, buckets, targetIdx);
+        recordBandedAt(res.mixRgb, buckets, mixIdx);
       }
     }
 
     // widen each recorded hue into its neighbours: the target hue of a solver
     // run and the hue the mix actually lands on can drift by a few degrees,
     // so fill a small window to avoid a mix poking just outside the region.
-    const out = newBuckets();
+    // Filled per band, so lightness slices stay independent.
+    const out = new Float64Array(NBANDS * HUE_STEPS);
     const FILL = 4; // ±20°
-    for (let i = 0; i < HUE_STEPS; i++) {
-      for (let d = -FILL; d <= FILL; d++) {
-        const j = ((i + d) % HUE_STEPS + HUE_STEPS) % HUE_STEPS;
-        if (buckets[i] > out[j]) out[j] = buckets[i];
+    for (let b = 0; b < NBANDS; b++) {
+      const base = b * HUE_STEPS;
+      for (let i = 0; i < HUE_STEPS; i++) {
+        for (let d = -FILL; d <= FILL; d++) {
+          const j = ((i + d) % HUE_STEPS + HUE_STEPS) % HUE_STEPS;
+          if (buckets[base + i] > out[base + j]) out[base + j] = buckets[base + i];
+        }
       }
     }
     return out;
@@ -159,11 +209,19 @@
     if (cached) return cached;
     const srgb = srgbBoundary();
     const cmyk = cmykBoundary();
-    const pal = paletteBoundary(paints || [], medium || { type: 'opaque', paper: '#FFFFFF' });
+    const pals = paletteBoundary(paints || [], medium || { type: 'opaque', paper: '#FFFFFF' });
+    // aggregate envelope (per-hue max across all lightness bands) is the
+    // overall coverage metric; the per-pixel / per-target tests use `pals`
+    const pal = newBuckets();
+    for (let b = 0; b < NBANDS; b++) {
+      const base = b * HUE_STEPS;
+      for (let i = 0; i < HUE_STEPS; i++) if (pals[base + i] > pal[i]) pal[i] = pals[base + i];
+    }
     const data = {
       srgb,
       cmyk,
       pal,
+      pals,
       srgbMax: Math.max(...srgb),
       coverageRGB: coverage(pal, srgb),
       coverageCMYK: coverage(pal, cmyk),
@@ -174,13 +232,13 @@
   }
 
   /* true/false whether an RGB colour falls inside the palette's achieved
-     region: its Lab chroma at its hue must not exceed the boundary bucket
-     the sampler recorded for that hue (with a small tolerance so a mix that
-     lands right on the edge isn't flagged). */
+     region at its own lightness: its Lab chroma at its hue must not exceed
+     the banded boundary interpolated to the colour's L* (with a small
+     tolerance so a mix that lands right on the edge isn't flagged). */
   function pointInside(paints, medium, rgb) {
     const data = compute(paints, medium);
     const lab = labOf(typeof rgb === 'string' ? Color.hexToRgb(rgb) : rgb);
-    return lab.chroma <= data.pal[hueIndex(lab.hue)] + 2;
+    return lab.chroma <= boundaryAt(data.pals, lab.L, hueIndex(lab.hue)) + 2;
   }
 
   /* ---- canvas rendering ---- */
@@ -255,11 +313,22 @@
     // 2. CMYK outline
     traceBoundary(ctx, cx, cy, R, data.cmyk, data.srgb, 'rgba(255,255,255,.85)', true);
 
-    // 3. palette region
+    // 3. palette region (overall envelope)
     traceBoundary(ctx, cx, cy, R, data.pal, data.srgb, 'rgba(80,160,255,.28)', false);
 
-    // 4. target + mixed markers on top
+    // 4. the palette's reach at the target's lightness: a bright outline
+    //    interpolated from the banded boundary, so a target marker that sits
+    //    outside it is genuinely unreachable at that brightness
     const markers = (opts && opts.markers) || [];
+    const target = markers.find((m) => m.ring);
+    if (target) {
+      const tLab = labOf(target.rgb);
+      const band = new Float64Array(HUE_STEPS);
+      for (let i = 0; i < HUE_STEPS; i++) band[i] = boundaryAt(data.pals, tLab.L, i);
+      traceOutline(ctx, cx, cy, R, band, data.srgb, '#4d8dff');
+    }
+
+    // 5. target + mixed markers on top
     for (const m of markers) {
       const p = positionOf(side, R, data, m.rgb);
       if (p.x < 0 || p.y < 0 || p.x > side || p.y > side) continue;
@@ -301,12 +370,33 @@
     ctx.stroke();
   }
 
+  /* dashed outline (no fill) for the palette's reach at one lightness */
+  function traceOutline(ctx, cx, cy, R, buckets, ref, color) {
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i <= HUE_STEPS; i++) {
+      const idx = i % HUE_STEPS;
+      const ratio = ref[idx] > 0 ? Math.min(1, buckets[idx] / ref[idx]) : 0;
+      const p = polar(cx, cy, R * ratio, idx * STEP_DEG, 1);
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
     const Gamut = {
     compute,
     render,
     positionOf,
     pointInside,
+    boundaryAt,
     hueIndex,
+    L_BANDS,
     HUE_STEPS,
   };
 
