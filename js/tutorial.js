@@ -28,6 +28,7 @@
   let root, dim, spot, bubble;
   let current = -1;
   let visible = false;
+  let savedOpen = null; // details panels' open state before the tour ran
 
   const STEPS = [
     { target: '#btn-open', title: 'stepLoadTitle', body: 'stepLoadBody' },
@@ -71,6 +72,18 @@
     }
   }
 
+  /* the mobile layout collapses the Sampler / Colour panels into closed
+     <details>; a step targeting content inside a collapsed panel would
+     spotlight the wrong area, so open any closed ancestor first. The panels
+     are restored to their original state when the tour ends. */
+  function expandAncestors(el) {
+    let node = el;
+    while (node) {
+      if (node.tagName === 'DETAILS' && !node.open) node.open = true;
+      node = node.parentElement;
+    }
+  }
+
   function show(i) {
     current = i;
     visible = true;
@@ -78,6 +91,8 @@
     const step = STEPS[i];
     const el = document.querySelector(step.target);
     if (!el) { hide(); return; }
+    // open collapsed ancestor panels so the spotlight points at real content
+    expandAncestors(el);
     // scroll only if the target is actually off-screen, and only just enough
     ensureVisible(el);
 
@@ -172,10 +187,17 @@
   function hide() {
     visible = false;
     root.hidden = true;
+    // put any panels we expanded for the tour back to how we found them
+    if (savedOpen) {
+      savedOpen.forEach((open, el) => { el.open = open; });
+      savedOpen = null;
+    }
   }
 
   function start() {
     if (!root) build();
+    savedOpen = new Map();
+    document.querySelectorAll('details').forEach((d) => savedOpen.set(d, d.open));
     show(0);
   }
 

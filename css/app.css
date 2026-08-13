@@ -502,7 +502,7 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .info-content summary { cursor: pointer; font-weight: 600; }
 .info-content details p { margin-top: 6px; }
 
-.palette-edit { display: grid; gap: 8px; }
+.palette-edit { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
 .palette-name-row { display: grid; gap: 5px; margin-bottom: 12px; }
 .palette-name-row input {
   background: var(--bg); color: var(--text);
@@ -514,18 +514,21 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .paint-edit {
   display: grid;
   gap: 8px;
+  min-width: 0;
   background: var(--panel-2); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px;
 }
 .pe-main {
   display: grid;
-  grid-template-columns: 34px 1fr 1fr 46px 30px;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) 46px 30px;
   gap: 8px; align-items: center;
+  min-width: 0;
 }
 .pe-extra {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   gap: 8px 10px; align-items: end;
+  min-width: 0;
 }
 .pe-field { display: grid; gap: 3px; min-width: 0; }
 .pe-field > span {
@@ -735,6 +738,24 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   .toolbar { gap: 6px; }
   .swatch-row { flex-direction: column; }
   .swatch { width: 100%; min-height: 56px; }
+
+  /* paint rows in the palette editor: stack name/brand and hex/delete next
+     to the swatch so the row fits a phone width without horizontal scroll */
+  .pe-main {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "colour name  hex"
+      "colour brand del";
+    align-items: stretch;
+  }
+  .pe-main .pe-colour { grid-area: colour; width: 100%; height: 100%; }
+  .pe-main .pe-name { grid-area: name; }
+  .pe-main .pe-brand { grid-area: brand; }
+  .pe-main .pe-hex { grid-area: hex; align-self: center; }
+  .pe-main .pe-del { grid-area: del; align-self: center; justify-self: end; }
+  .pe-extra { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pe-extra .pe-check { justify-self: start; }
 
   /* touch-target polish */
   .btn { padding: 9px 14px; }
