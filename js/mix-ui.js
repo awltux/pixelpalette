@@ -41,6 +41,14 @@
     filter: loadFilters(),
   };
 
+  /* which swatch the colour readouts currently show: 'target' or 'mixed' */
+  let activeSwatch = 'target';
+  /* hex currently displayed in the Mixed swatch (may be a recorded mix from
+     history rather than the live ui.result solve) */
+  let mixedHex = null;
+  /* debounced write-back of a manual mix tweak to the matching history entry */
+  let historyTweakTimer = null;
+
   function loadFilters() {
     const def = { lightfast: 'all', granulating: 'any', staining: 'any', maxPaints: 'all', toxic: 'any' };
     try {
@@ -57,10 +65,13 @@
   function init() {
     els.select = document.getElementById('palette-select');
     els.list = document.getElementById('mix-list');
-    els.mixSwatch = document.getElementById('mix-swatch');
-    els.targetSwatch = document.getElementById('target-swatch');
+    els.mixSwatch = document.getElementById('mixed-swatch');
+    els.mixedCol = document.getElementById('mixed-swatch-col');
+    els.targetSwatch = document.getElementById('colour-swatch');
     els.delta = document.getElementById('mix-delta');
+    els.restore = document.getElementById('mix-restore');
     els.resolve = document.getElementById('btn-resolve');
+    els.lockMix = document.getElementById('btn-lock-mix');
     els.edit = document.getElementById('btn-edit-palette');
     els.dup = document.getElementById('btn-dup-palette');
     els.readout = document.getElementById('medium-readout');
@@ -113,6 +124,10 @@
       if (ui.target) update(ui.target);
     });
 
+    if (els.lockMix) {
+      els.lockMix.addEventListener('click', toggleLockMix);
+    }
+
     els.resolve.addEventListener('click', () => {
       if (!ui.target || !ui.paints.length) return;
       const avail = filterPaints();
@@ -120,7 +135,10 @@
       const { res, pool } = pickSolve(avail, ui.target);
       if (!res) return;
       const current = ui.result ? ui.result.deltaE : Infinity;
-      if (effectiveDeltaE(res) < current) applyResult(res, pool);
+      if (effectiveDeltaE(res) < current) {
+        applyResult(res, pool);
+        scheduleHistoryMixUpdate();
+      }
     });
 
     els.edit.addEventListener('click', () => {
@@ -133,6 +151,20 @@
       refresh();
       global.CP.PaletteEditor.open();
     });
+
+    if (els.targetSwatch) {
+      els.targetSwatch.classList.add('active');
+      els.targetSwatch.addEventListener('click', () => setActiveSwatch('target'));
+      els.targetSwatch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSwatch('target'); }
+      });
+    }
+    if (els.mixSwatch) {
+      els.mixSwatch.addEventListener('click', () => setActiveSwatch('mixed'));
+      els.mixSwatch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSwatch('mixed'); }
+      });
+    }
   }
 
   function populateSelect() {
@@ -146,14 +178,18 @@
     els.select.value = Palettes.getSelected();
   }
 
-  function loadPalette(id) {
+  function loadPalette(id, opts) {
     const { paints, medium } = Palettes.get(id);
     ui.paints = paints || [];
     ui.medium = medium;
     updateMediumReadout();
     updateFilterVisibility();
     renderGamut();
-    if (global.CP.GamutFilter) global.CP.GamutFilter.onPaletteChange();
+    const gf = global.CP.GamutFilter;
+    if (gf) {
+      if (opts && opts.suppressFilter) gf.invalidate();
+      else gf.onPaletteChange();
+    }
   }
 
   function renderGamut() {
@@ -407,7 +443,14 @@
 
   function render() {
     els.targetSwatch.style.background = Color.rgbToHex(ui.target.r, ui.target.g, ui.target.b);
-    els.mixSwatch.style.background = ui.result ? ui.result.mixHex : '#333';
+    const hasMix = !!(ui.result && ui.result.mixHex);
+    if (els.mixedCol) els.mixedCol.hidden = !hasMix;
+    if (hasMix) {
+      els.mixSwatch.style.background = ui.result.mixHex;
+      mixedHex = ui.result.mixHex;
+    } else {
+      mixedHex = null;
+    }
     els.delta.textContent = deltaText();
 
     // difficulty indicator: colour-code the readout and warn when a target
@@ -462,9 +505,10 @@
       slider.step = 1;
       slider.setAttribute('aria-label', e.paint.name);
       slider.value = Math.round(e.amt * 100);
+      slider.disabled = currentMixLocked();
 
       const updateLabels = () => {
-        pct.textContent = Math.round(e.amt * 100) + '%';
+        pct.textContent = (Math.round(e.amt * 1000) / 10) + '%';
       };
       updateLabels();
 
@@ -488,16 +532,23 @@
         ui.result.deltaE = Color.deltaE(ui.target, mix.mixRgb);
         if (ui.medium.type === 'glaze') ui.result.conc = ui.recipe.reduce((a, b) => a + b, 0);
         els.mixSwatch.style.background = mix.mixHex;
+        mixedHex = mix.mixHex;
         els.delta.textContent = deltaText();
         updateDifficulty();
+        syncReadout();
+        scheduleHistoryMixUpdate();
         renderGamut();
         updateLabels();
-        // sync sibling slider values
+        // sync sibling slider values (keep fractional values when a slider is
+        // in Ctrl fine-drag mode, i.e. its step has been relaxed to "any")
         const siblingInputs = els.list.querySelectorAll('input[type="range"]');
         const shown = entries.map(en => ui.paints.indexOf(en.paint));
         ui.recipe.forEach((amt, i) => {
           const idx = shown.indexOf(i);
-          if (idx >= 0) siblingInputs[idx].value = Math.round(amt * 100);
+          if (idx < 0) return;
+          const inp = siblingInputs[idx];
+          const pct = amt * 100;
+          inp.value = String(inp.step === 'any' ? pct : Math.round(pct));
         });
       });
 
@@ -514,8 +565,284 @@
       note.textContent = ui.result ? '—' : I18N.t('noPaintsMatch');
       els.list.appendChild(note);
     }
+    updateLockMixBtn();
+    syncReadout();
+  }
+
+  function getResult() { return ui.result; }
+
+  /* the history entry that the current mix writes back to: the most recent
+     entry for the current target colour */
+  function activeTargetHex() {
+    return ui.target ? Color.rgbToHex(ui.target.r, ui.target.g, ui.target.b) : null;
+  }
+
+  function toggleLockMix() {
+    const hex = activeTargetHex();
+    if (!hex || !global.CP.History.toggleLock) return;
+    global.CP.History.toggleLock(hex);
+    render();
+  }
+
+  /* is the currently active history mix (for the current target) locked? */
+  function currentMixLocked() {
+    const hex = activeTargetHex();
+    return !!hex && !!(global.CP.History && global.CP.History.isLocked && global.CP.History.isLocked(hex));
+  }
+
+  function updateLockMixBtn() {
+    if (!els.lockMix) return;
+    const hex = activeTargetHex();
+    const has = hex && global.CP.History.hasEntry && global.CP.History.hasEntry(hex);
+    const locked = currentMixLocked();
+    const label = els.lockMix.querySelector('[data-i18n]') || els.lockMix;
+    label.textContent = I18N.t(locked ? 'btnUnlockMix' : 'btnLockMix');
+    els.lockMix.classList.toggle('is-on', locked);
+    els.lockMix.setAttribute('aria-pressed', locked ? 'true' : 'false');
+    els.lockMix.disabled = !has;
+  }
+
+  /* show a recorded mix colour in the colour pane's Mixed swatch */
+  function setMixedSwatch(hex) {
+    mixedHex = hex || null;
+    if (els.mixedCol) els.mixedCol.hidden = !hex;
+    if (hex && els.mixSwatch) els.mixSwatch.style.background = hex;
+    syncReadout();
+  }
+
+  /* mark a swatch as active (Target or Mixed): its colour drives the
+     HEX/RGB/HSL/CMYK readouts and it gets the heavy outline */
+  function setActiveSwatch(kind) {
+    activeSwatch = kind === 'mixed' ? 'mixed' : 'target';
+    if (els.targetSwatch) {
+      els.targetSwatch.classList.toggle('active', activeSwatch === 'target');
+      els.targetSwatch.setAttribute('aria-pressed', String(activeSwatch === 'target'));
+    }
+    if (els.mixSwatch) {
+      els.mixSwatch.classList.toggle('active', activeSwatch === 'mixed');
+      els.mixSwatch.setAttribute('aria-pressed', String(activeSwatch === 'mixed'));
+    }
+    syncReadout();
+  }
+
+  /* show the active swatch's current colour in the readouts */
+  function syncReadout() {
+    if (!global.CP.Readout) return;
+    if (activeSwatch === 'mixed' && mixedHex) {
+      global.CP.Readout.update(Color.hexToRgb(mixedHex), els.mixSwatch);
+    } else if (ui.target) {
+      global.CP.Readout.update(ui.target, els.targetSwatch);
+    }
+  }
+
+  /* a target colour changed from outside (loupe sample, history pick);
+     shown in the readouts only while the Target swatch is active */
+  function publishTarget(rgb) {
+    if (activeSwatch === 'target' && global.CP.Readout) global.CP.Readout.update(rgb, els.targetSwatch);
+  }
+
+  /* persist a manual mix change onto the most recent history entry for the
+     current target colour. Debounced so a slider drag writes once, and the
+     entry snapshot is captured at change time (a loupe move before the write
+     must not rebind the tweak to a different target). */
+  function scheduleHistoryMixUpdate() {
+    if (!ui.target || !ui.result || !ui.result.mixHex) return;
+    const ctx = getContext();
+    const entry = {
+      target: Color.rgbToHex(ui.target.r, ui.target.g, ui.target.b),
+      mixed: ui.result.mixHex,
+      palette: ctx.palette,
+      recipe: ctx.recipe,
+    };
+    if (historyTweakTimer) clearTimeout(historyTweakTimer);
+    historyTweakTimer = setTimeout(() => {
+      historyTweakTimer = null;
+      if (global.CP.History && global.CP.History.updateMixedForTarget) {
+        global.CP.History.updateMixedForTarget(entry);
+      }
+    }, 500);
+  }
+
+  /* ---------- history restore ---------- */
+  const deep = (o) => JSON.parse(JSON.stringify(o));
+  const paintKey = (p) => (p.name || '') + '|' + (p.brand || '') + '|' + (p.hex || '').toUpperCase();
+
+  /* snapshot of the current palette + recipe, so history can reproduce a
+     recorded mix regardless of later palette edits */
+  function getContext() {
+    const id = Palettes.getSelected();
+    const { paints, medium, label } = Palettes.get(id);
+    const recipe = ui.recipe
+      .map((amt, i) => ({ paint: ui.paints[i], ratio: amt }))
+      .filter(e => e.ratio > 0.005)
+      .map(e => ({ paint: deep(e.paint), ratio: e.ratio }));
+    return {
+      palette: { id, label, medium: deep(medium), paints: deep(paints) },
+      recipe,
+    };
+  }
+
+  /* recipe paints whose name/brand/hex no longer exist in the palette */
+  function recipeMissing(recipe, paints) {
+    const have = new Set((paints || []).map(paintKey));
+    return (recipe || []).filter(r => !have.has(paintKey(r.paint)));
+  }
+
+  /* reasons a recipe cannot be reproduced against the current palette+filters */
+  function restoreBlocked(recipe) {
+    const reasons = [];
+    if (!recipe || !recipe.length) return reasons;
+    const missing = recipeMissing(recipe, ui.paints);
+    if (missing.length) {
+      reasons.push(I18N.t('mixRestoreMissing', { list: missing.map(r => r.paint.name).join(', ') }));
+    }
+    const present = new Set(ui.paints.map(paintKey));
+    const passable = new Set(filterPaints().indices.map(i => paintKey(ui.paints[i])));
+    const filterBlocked = recipe.some(r => {
+      const k = paintKey(r.paint);
+      return present.has(k) && !passable.has(k);
+    });
+    if (filterBlocked) reasons.push(I18N.t('mixRestoreFilters'));
+    const mp = maxPaints();
+    if (mp > 0 && recipe.length > mp) reasons.push(I18N.t('mixRestoreMaxPaints'));
+    return reasons;
+  }
+
+  let pendingRestore = null;
+
+  function showRestoreNotice(reasons, entry) {
+    if (!els.restore) return;
+    els.restore.innerHTML = '';
+    const txt = document.createElement('div');
+    txt.textContent = I18N.t('mixRestoreLead') + ' ' + reasons.join(' ');
+    els.restore.appendChild(txt);
+    if (entry && entry.palette) {
+      pendingRestore = entry;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-ghost btn-sm mix-restore-btn';
+      btn.textContent = I18N.t('mixRestoreBtn');
+      btn.addEventListener('click', doRestore);
+      els.restore.appendChild(btn);
+    }
+    els.restore.hidden = false;
+  }
+
+  function hideRestoreNotice() {
+    pendingRestore = null;
+    if (els.restore) {
+      els.restore.innerHTML = '';
+      els.restore.hidden = true;
+    }
+  }
+
+  /* set the ratio sliders from a recorded recipe (paints matched to the
+     current palette by name/brand/hex) and recompute the mix from it, so
+     restoring a history colour reproduces its saved mix instead of a fresh
+     solve. Returns true when at least one paint was matched. */
+  function applyRecipe(recipe) {
+    if (!Array.isArray(recipe) || !recipe.length) return false;
+    const next = ui.paints.map(() => 0);
+    let matched = false;
+    for (const r of recipe) {
+      const idx = ui.paints.findIndex(p => paintKey(p) === paintKey(r.paint));
+      if (idx >= 0) { next[idx] = r.ratio; matched = true; }
+    }
+    if (!matched) return false;
+    ui.recipe = next;
+    const mix = Mixing.mixColour(ui.paints, ui.recipe, ui.medium);
+    if (ui.result) {
+      ui.result.mixHex = mix.mixHex;
+      ui.result.mixRgb = mix.mixRgb;
+      ui.result.deltaE = Color.deltaE(ui.target, mix.mixRgb);
+      if (ui.medium.type === 'glaze') ui.result.conc = ui.recipe.reduce((a, b) => a + b, 0);
+    }
+    render();
+    renderGamut();
+    return true;
+  }
+
+  /* restore a history entry: select the recorded palette, reset the mix to
+     the recorded recipe when possible, and surface what cannot be reproduced */
+  function restoreFromHistory(entry) {
+    if (!entry || !entry.target) return;
+    const rgb = Color.hexToRgb(entry.target);
+    ui.target = rgb;
+    setActiveSwatch('target');
+    publishTarget(rgb);
+
+    const snap = entry.palette || null;
+    const gone = snap && !Palettes.list().some(p => p.id === snap.id);
+
+    if (snap && !gone) {
+      Palettes.setSelected(snap.id);
+      populateSelect();
+      // don't re-run the "limit to palette" filter here: it redraws the image
+      // and re-samples the pixel under the loupe, overwriting the restored
+      // colour in a feedback loop. The filter re-applies on the next genuine
+      // palette change or loupe move.
+      loadPalette(snap.id, { suppressFilter: true });
+    }
+
+    update(rgb);
+    applyRecipe(entry.recipe);
+    if (entry.mixed) setMixedSwatch(entry.mixed);
+
+    const reasons = [];
+    if (gone) reasons.push(I18N.t('mixRestoreGone', { label: snap.label }));
+    if (!snap) reasons.push(I18N.t('mixRestoreUnknownPalette'));
+    if (entry.recipe && entry.recipe.length) reasons.push(...restoreBlocked(entry.recipe));
+
+    if (reasons.length) showRestoreNotice(reasons, snap ? entry : null);
+    else hideRestoreNotice();
+  }
+
+  /* "Restore paints" action: bring the recorded paints back into the palette
+     (recreating a deleted custom palette), relax blocking filters, re-solve */
+  function doRestore() {
+    const entry = pendingRestore;
+    if (!entry || !entry.palette) return;
+    const snap = entry.palette;
+    let id = snap.id;
+
+    if (!Palettes.list().some(p => p.id === id)) {
+      const suffix = I18N.t('restoredSuffix') || '(restored)';
+      id = Palettes.createCustom(snap.label + ' ' + suffix, snap.medium, snap.paints, snap.source || snap.id);
+    }
+
+    const current = Palettes.get(id).paints;
+    const have = new Set(current.map(paintKey));
+    const missing = (entry.recipe || [])
+      .map(r => r.paint)
+      .filter(p => !have.has(paintKey(p)));
+    if (missing.length) Palettes.setPaints(id, current.concat(missing));
+
+    if ((entry.recipe || []).length && restoreBlocked(entry.recipe).length) {
+      ui.filter.lightfast = 'all';
+      ui.filter.granulating = 'any';
+      ui.filter.staining = 'any';
+      ui.filter.toxic = 'any';
+      ui.filter.maxPaints = 'all';
+      saveFilters();
+      updateFilterVisibility();
+      for (const key of Object.keys(els.filters || {})) els.filters[key].value = ui.filter[key] || 'all';
+    }
+
+    Palettes.setSelected(id);
+    populateSelect();
+    loadPalette(id);
+    update(ui.target);
+    applyRecipe(entry.recipe);
+    if (entry.mixed) setMixedSwatch(entry.mixed);
+    hideRestoreNotice();
   }
 
   global.CP = global.CP || {};
-  global.CP.MixUI = { init, update, render, reloadPaints, refresh };
+  global.CP.MixUI = {
+    init, update, render, reloadPaints, refresh,
+    getResult, setMixedSwatch, setActiveSwatch, syncReadout, publishTarget,
+    getContext, restoreFromHistory,
+    updateLockMixBtn: () => updateLockMixBtn(),
+    refreshLockBtn: () => updateLockMixBtn(),
+  };
 })(window);

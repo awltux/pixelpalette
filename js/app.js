@@ -87,6 +87,7 @@
     document.getElementById('btn-reset').addEventListener('click', () => global.CP.Canvas.reset());
     document.getElementById('btn-zoom-in').addEventListener('click', () => global.CP.Canvas.zoomIn());
     document.getElementById('btn-zoom-out').addEventListener('click', () => global.CP.Canvas.zoomOut());
+    document.getElementById('btn-lock').addEventListener('click', () => global.CP.Canvas.toggleLock());
 
     document.querySelectorAll('.nav-btn[data-nav]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -214,6 +215,88 @@
     }
   }
 
+  /* ---------- fine slider drag (hold Ctrl) ----------
+     Ctrl+dragging any range slider reduces the pointer-to-value sensitivity
+     by FINE_FACTOR, so tiny nudges produce very small value changes. The
+     drag is driven entirely here (pointer capture) so the reduced sensitivity
+     applies regardless of the slider's native drag behaviour. */
+  const FINE_FACTOR = 10;
+  const fineDrags = new Map();
+
+  function initFineDrag() {
+    document.addEventListener('pointerdown', (e) => {
+      const t = e.target;
+      if (!t || t.tagName !== 'INPUT' || t.type !== 'range') return;
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      const rect = t.getBoundingClientRect();
+      const origStep = t.getAttribute('step');
+      const step = (origStep !== null && parseFloat(origStep) > 0) ? parseFloat(origStep) : 1;
+      const min = t.min === '' ? 0 : parseFloat(t.min);
+      const max = t.max === '' ? 100 : parseFloat(t.max);
+      const range = max - min;
+      if (!(range > 0) || !(rect.width > 0)) return;
+      const cur = parseFloat(t.value);
+      const clickVal = min + ((e.clientX - rect.left) / rect.width) * range;
+      const thumbCx = ((cur - min) / range) * rect.width;
+      // grab the thumb if pressed on it; otherwise jump to the clicked spot
+      const onThumb = Math.abs((e.clientX - rect.left) - thumbCx) <= 14;
+      const startValue = onThumb
+        ? cur
+        : min + Math.round((clickVal - min) / step) * step;
+      fineDrags.set(e.pointerId, {
+        input: t,
+        origStep,
+        startX: e.clientX,
+        startValue,
+        min, max, step, range,
+        width: rect.width,
+        fine: false,
+      });
+      try { t.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      t.focus();
+      e.preventDefault();
+    }, true);
+
+    document.addEventListener('pointermove', (e) => {
+      const st = fineDrags.get(e.pointerId);
+      if (!st) return;
+      e.preventDefault();
+      const input = st.input;
+      const fine = e.ctrlKey;
+      if (fine !== st.fine) {
+        // ctrl pressed/released mid-drag: re-baseline so there's no jump
+        st.startX = e.clientX;
+        st.startValue = parseFloat(input.value);
+        st.fine = fine;
+      }
+      const raw = st.startValue + ((e.clientX - st.startX) / st.width) * st.range;
+      const sens = fine ? 1 / FINE_FACTOR : 1;
+      let v = Math.max(st.min, Math.min(st.max, st.startValue + (raw - st.startValue) * sens));
+      if (fine) {
+        input.step = 'any';
+        v = Math.round(v * 1000) / 1000;
+      } else {
+        input.step = String(st.step);
+        v = st.min + Math.round((v - st.min) / st.step) * st.step;
+        v = Math.round(v * 1e6) / 1e6;
+      }
+      if (parseFloat(input.value) !== v) {
+        input.value = String(v);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }, true);
+
+    const endFineDrag = (e) => {
+      const st = fineDrags.get(e.pointerId);
+      if (!st) return;
+      if (st.origStep === null) st.input.removeAttribute('step');
+      else st.input.step = st.origStep;
+      fineDrags.delete(e.pointerId);
+    };
+    document.addEventListener('pointerup', endFineDrag, true);
+    document.addEventListener('pointercancel', endFineDrag, true);
+  }
+
   /* ---------- boot ---------- */
   function boot() {
     I18N.apply();
@@ -236,6 +319,7 @@
     initInfo();
     initPaneDivider();
     initMobilePanels();
+    initFineDrag();
 
     global.CP.blurFilter = blurFilter;
 

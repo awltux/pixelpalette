@@ -30,7 +30,7 @@
 
   const I18N = global.I18N;
   const STORAGE_KEY = 'pp.disclaimer';
-  const VERSION = 1;
+  const VERSION = 2;
 
   let root = null;
   let accepted = false;

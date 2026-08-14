@@ -134,6 +134,13 @@ Google Search Console verification: paste the meta tag here after adding the sit
         <input type="checkbox" id="chk-gamut">
         <span class="toolbar-check-label" data-i18n="gamutFilterLimit">Limit to palette</span>
       </label>
+      <button id="btn-lock" class="btn-lock" type="button" aria-pressed="false">
+        <svg class="lock-ico" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" fill="currentColor" stroke="none"/>
+          <path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>
+        </svg>
+        <span data-i18n="btnLock">Lock pan</span>
+      </button>
       <span class="toolbar-sep" aria-hidden="true"></span>
       <button id="btn-zoom-out" class="btn" type="button" aria-label="Zoom out">−</button>
       <button id="btn-zoom-in" class="btn" type="button" aria-label="Zoom in">+</button>
@@ -206,7 +213,16 @@ Google Search Console verification: paste the meta tag here after adding the sit
       <summary data-i18n="panelReadout">Colour</summary>
       <div class="readout-area" id="readout-area">
         <div class="swatch-row">
-          <div class="swatch" id="colour-swatch" aria-hidden="true"></div>
+          <div class="swatch-col">
+            <div class="swatch" id="colour-swatch" role="button" tabindex="0"
+                 data-i18n-attr="aria-label:targetSwatch" aria-pressed="true"></div>
+            <span class="swatch-label" data-i18n="targetSwatch">Target</span>
+          </div>
+          <div class="swatch-col" id="mixed-swatch-col" hidden>
+            <div class="swatch" id="mixed-swatch" role="button" tabindex="0"
+                 data-i18n-attr="aria-label:mixSwatch" aria-pressed="false"></div>
+            <span class="swatch-label" data-i18n="mixSwatch">Mixed</span>
+          </div>
           <div class="swatch-info">
             <div class="readout-row">
               <span class="fmt">HEX</span>
@@ -316,21 +332,21 @@ Google Search Console verification: paste the meta tag here after adding the sit
         </label>
       </div>
 
-      <div class="mix-compare">
-        <div class="mix-swatch">
-          <div class="mix-swatch-sq" id="mix-swatch"></div>
-          <span data-i18n="mixSwatch">Mixed</span>
-        </div>
-        <div class="mix-swatch">
-          <div class="mix-swatch-sq" id="target-swatch"></div>
-          <span data-i18n="targetSwatch">Target</span>
-        </div>
-      </div>
       <div class="delta" id="mix-delta" data-i18n-attr="title:deltaEHelp"></div>
       <div class="mix-warning" id="mix-warning" hidden></div>
+      <div class="mix-warning" id="mix-restore" hidden></div>
 
       <div class="mix-list" id="mix-list"></div>
-      <button id="btn-resolve" class="btn btn-ghost" type="button" data-i18n="btnResolve">Re-solve mix</button>
+      <div class="mix-actions">
+        <button id="btn-lock-mix" class="btn-lock" type="button" aria-pressed="false">
+          <svg class="lock-ico" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" fill="currentColor" stroke="none"/>
+            <path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>
+          </svg>
+          <span data-i18n="btnLockMix">Lock mix</span>
+        </button>
+        <button id="btn-resolve" class="btn btn-ghost" type="button" data-i18n="btnResolve">Re-solve mix</button>
+      </div>
     </section>
 
     <!-- Ad slot: sidebar rectangle (AdSense placeholder) -->
@@ -507,12 +523,19 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <!-- Legal / safety notice gate (populated by js/disclaimer.js) -->
 <div class="overlay disclaimer-overlay" id="disclaimer-overlay" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title" hidden>
   <div class="modal disclaimer-modal">
-    <h2 id="disclaimer-title" data-i18n="disclaimerTitle">Legal notice — paint safety</h2>
+    <h2 id="disclaimer-title" data-i18n="disclaimerTitle">Legal notice — paint safety &amp; terms</h2>
     <div class="disclaimer-content">
-      <p data-i18n="disclaimerLead">Pixel Palette identifies some paints as toxic, for example pigments based on cadmium, cobalt, lead or chromium compounds. Please read this notice before using the app.</p>
-      <p data-i18n="disclaimerSds">The toxicity information is provided for convenience only. It is not a substitute for the manufacturer&rsquo;s Safety Data Sheet (SDS), the product label, or professional advice. Always follow the handling, ventilation and hygiene instructions for the specific paint brand and medium you use.</p>
-      <p data-i18n="disclaimerPractice">Keep paints out of the reach of children and away from food and drink. Wash your hands after painting. Avoid breathing dry pigment dust, and minimise skin and eye contact.</p>
-      <p data-i18n="disclaimerResponsibility">You are responsible for verifying the safety of the paints you buy. Pixel Palette flags paints as toxic in good faith, based on commonly reported pigment properties, and accepts no liability for any decisions you make using this information.</p>
+      <p data-i18n="disclaimerLead">Pixel Palette is a free colour-picking and paint-mixing tool provided by Awltux Limited. It runs entirely in your browser &mdash; no image is ever uploaded and no account is required. Please read this notice before using the app.</p>
+
+      <h3 data-i18n="disclaimerSafetyTitle">Paint safety</h3>
+      <p data-i18n="disclaimerSafety">Paint must not be digested &mdash; toxic or not. Keep paints out of the reach of children and away from food and drink, and wash your hands after painting.</p>
+
+      <h3 data-i18n="disclaimerTermsTitle">Terms of use (business to consumer)</h3>
+      <p data-i18n="disclaimerTermsScope">This notice forms part of the contract between you (the consumer) and Awltux Limited. By using Pixel Palette you agree to these terms.</p>
+      <p data-i18n="disclaimerTermsAsIs">The service is provided free of charge &ldquo;as is&rdquo; and &ldquo;as available&rdquo;, without warranties of any kind, express or implied, including fitness for a particular purpose.</p>
+      <p data-i18n="disclaimerTermsLiability">To the extent permitted by law, Awltux Limited accepts no liability for any loss or damage arising from your use of the service, including any decision you make based on its colour or paint information.</p>
+      <p data-i18n="disclaimerTermsIp">Pixel Palette is licensed under the GNU Affero General Public License, version 3. Copyright is owned by Awltux Limited.</p>
+      <p data-i18n="disclaimerTermsContact">For questions about these terms, or to exercise your consumer rights, contact us at awltux.games@gmail.com.</p>
     </div>
     <div class="modal-actions">
       <span class="spacer"></span>

@@ -61,6 +61,7 @@
   let enabled = false;
   let token = 0;
   let filtered = null; // { canvas, width, height, sig }
+  let pendingApplyRAF = 0;
 
   function isOn() { return enabled; }
 
@@ -203,6 +204,15 @@
     filterCanvas(orig.canvas, orig.width, orig.height, paints, medium, sig, t);
   }
 
+  /* run apply() on the next frame, coalescing pending runs */
+  function scheduleApply() {
+    cancelAnimationFrame(pendingApplyRAF);
+    pendingApplyRAF = requestAnimationFrame(() => {
+      pendingApplyRAF = 0;
+      apply();
+    });
+  }
+
   function restore() {
     token++;
     const orig = original();
@@ -217,7 +227,7 @@
      boundary) has a chance to run first. */
   function onImageLoaded() {
     filtered = null;
-    requestAnimationFrame(() => apply());
+    scheduleApply();
   }
 
   /* called after the palette (or medium) changes; if the filter is on,
@@ -225,7 +235,19 @@
   function onPaletteChange() {
     if (!enabled) return;
     filtered = null;
-    requestAnimationFrame(() => apply());
+    scheduleApply();
+  }
+
+  /* abort any in-flight filter run and any pending re-run WITHOUT
+     recalculating. Used when the palette is switched for a colour restore,
+     where re-filtering would redraw the image and re-sample the pixel under
+     the loupe, overwriting the restored colour in a feedback loop. The
+     filter stays as-is until the next genuine palette change or re-enable. */
+  function invalidate() {
+    token++;
+    filtered = null;
+    cancelAnimationFrame(pendingApplyRAF);
+    pendingApplyRAF = 0;
   }
 
   function init() {
@@ -242,7 +264,7 @@
   }
 
   global.CP = global.CP || {};
-  global.CP.GamutFilter = { init, apply, restore, onImageLoaded, onPaletteChange, isOn };
+  global.CP.GamutFilter = { init, apply, restore, onImageLoaded, onPaletteChange, invalidate, isOn };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.CP.GamutFilter;

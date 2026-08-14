@@ -27,16 +27,20 @@
 
   const els = {};
 
-  function update(rgb) {
+  /* display colour values; the swatch painted (default: the Target swatch)
+     can be overridden so the readouts can show another swatch's colour
+     without repainting the Target swatch */
+  function update(rgb, swatchEl) {
     const hex = Color.rgbToHex(rgb.r, rgb.g, rgb.b);
     const hsl = Color.rgbToHsl(rgb.r, rgb.g, rgb.b);
     const cmyk = Color.rgbToCmyk(rgb.r, rgb.g, rgb.b);
-    els.swatch.style.background = hex;
+    const el = swatchEl || els.swatch;
+    if (el) el.style.background = hex;
     els.hex.textContent = hex.toUpperCase();
     els.rgb.textContent = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
     els.hsl.textContent = `${hsl.h}°, ${hsl.s}%, ${hsl.l}%`;
     els.cmyk.textContent = `${cmyk.c}, ${cmyk.m}, ${cmyk.y}, ${cmyk.k}`;
-    els.swatch.setAttribute('data-hex', hex);
+    if (el) el.setAttribute('data-hex', hex);
   }
 
   function copy(text, btn) {

@@ -32,6 +32,10 @@
   let fxQueued = false;
   let lastFxRgb = null;
   let magnifyDrag = null;
+  /* colour snapshot taken when a history colour is restored, so the colour
+     under the loupe can't overwrite the restored swatch (or re-record the
+     history entry) until the sampled colour actually changes */
+  let holdSample = null;
 
   const HANDLE = 12; // hit radius for corner handles (px)
 
@@ -47,11 +51,22 @@
       const c = lastFxRgb;
       lastFxRgb = null;
       if (c) {
+        // after a history restore the loupe may only take over (and
+        // re-record history) once the sampled colour actually differs.
+        // A nudge that lands on another pixel of the same colour keeps the
+        // restore intact, so slider tweaks to a held history colour don't
+        // wipe the mix or overwrite that entry's recorded mixed value.
+        if (holdSample && holdSample.rgb && sameRgb(holdSample.rgb, c)) {
+          return;
+        }
+        holdSample = null;
         if (global.CP.MixUI) global.CP.MixUI.update(c);
         if (global.CP.History) global.CP.History.onSample(c);
       }
     });
   }
+
+  const sameRgb = (a, b) => !!a && !!b && a.r === b.r && a.g === b.g && a.b === b.b;
 
   function setSize(px, fromUI) {
     const st = getState();
@@ -108,32 +123,52 @@
   function endResize() { resizeState = null; }
 
   /* ---------- sampling ---------- */
+  function pixelAt(canvas, px, py) {
+    if (!sampleCanvas) sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = 1;
+    sampleCanvas.height = 1;
+    const sctx = sampleCanvas.getContext('2d');
+    sctx.drawImage(canvas, px, py, 1, 1, 0, 0, 1, 1);
+    let data;
+    try {
+      data = sctx.getImageData(0, 0, 1, 1).data;
+    } catch (e) { return null; }
+    return { r: data[0], g: data[1], b: data[2] };
+  }
+
   function sample() {
     const st = getState();
     if (!st.image) return;
     const px = Math.max(0, Math.min(st.image.width - 1, Math.round(st.view.cx)));
     const py = Math.max(0, Math.min(st.image.height - 1, Math.round(st.view.cy)));
-    if (!sampleCanvas) sampleCanvas = document.createElement('canvas');
-    sampleCanvas.width = 1;
-    sampleCanvas.height = 1;
-    const sctx = sampleCanvas.getContext('2d');
-    sctx.drawImage(st.image.canvas, px, py, 1, 1, 0, 0, 1, 1);
-    let data;
-    try {
-      data = sctx.getImageData(0, 0, 1, 1).data;
-    } catch (e) { return; }
-    const rgb = { r: data[0], g: data[1], b: data[2] };
+    const rgb = pixelAt(st.image.canvas, px, py);
+    if (!rgb) return;
     st.color = rgb;
-    global.CP.Readout.update(rgb);
+    if (global.CP.MixUI && global.CP.MixUI.publishTarget) global.CP.MixUI.publishTarget(rgb);
+    else if (global.CP.Readout) global.CP.Readout.update(rgb);
     drawMagnifier();
     queueSideFx(rgb);
   }
 
-  function setColorFromHistory(rgb) {
+  function setColorFromHistory(entry) {
+    const rgb = Color.hexToRgb(entry.target);
     const st = getState();
     st.color = rgb;
-    global.CP.Readout.update(rgb);
-    if (global.CP.MixUI) global.CP.MixUI.update(rgb);
+    if (global.CP.MixUI && global.CP.MixUI.restoreFromHistory) {
+      global.CP.MixUI.restoreFromHistory(entry);
+    } else if (global.CP.MixUI) {
+      global.CP.MixUI.update(rgb);
+      if (global.CP.MixUI.publishTarget) global.CP.MixUI.publishTarget(rgb);
+    }
+    // hold the current loupe sample so the restored colour isn't immediately
+    // overwritten by the colour under the loupe; released on colour change
+    if (st.image) {
+      const px = Math.max(0, Math.min(st.image.width - 1, Math.round(st.view.cx)));
+      const py = Math.max(0, Math.min(st.image.height - 1, Math.round(st.view.cy)));
+      holdSample = { rgb: pixelAt(st.image.canvas, px, py) };
+    } else {
+      holdSample = null;
+    }
     drawMagnifier();
   }
 

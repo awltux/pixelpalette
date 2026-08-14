@@ -264,6 +264,24 @@
       return cid;
     },
 
+    /* create a custom palette from explicit parts; returns the new id.
+       used to resurrect a custom palette deleted since a history entry
+       recorded its snapshot. */
+    createCustom(label, medium, paints, source) {
+      const c = customs();
+      let n = 1;
+      while (c['custom_' + n]) n++;
+      const cid = 'custom_' + n;
+      c[cid] = {
+        label,
+        source: source || null,
+        medium: clone(medium),
+        paints: clone(paints),
+      };
+      writeJSON(CUSTOMS_KEY, c);
+      return cid;
+    },
+
     removeCustom(id) {
       const c = customs();
       if (!c[id]) return;

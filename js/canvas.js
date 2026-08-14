@@ -35,6 +35,24 @@
   const pointers = new Map();
   let panLast = null;
   let pinchLast = null;
+  let locked = false;
+
+  function applyLockUI() {
+    const btn = document.getElementById('btn-lock');
+    if (btn) {
+      const label = btn.querySelector('[data-i18n]') || btn;
+      label.textContent = global.I18N.t(locked ? 'btnUnlock' : 'btnLock');
+      btn.setAttribute('aria-pressed', locked ? 'true' : 'false');
+      btn.classList.toggle('is-on', locked);
+    }
+    if (canvas) canvas.classList.toggle('locked', locked);
+  }
+
+  function setLocked(v) {
+    locked = !!v;
+    applyLockUI();
+    requestRender();
+  }
 
   function worldFromScreen(sx, sy) {
     const s = getState().view;
@@ -89,6 +107,7 @@
     dpr = global.devicePixelRatio || 1;
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
+    applyLockUI();
     render();
   }
 
@@ -182,18 +201,18 @@
       panLast.y = e.clientY;
       if (panLast.mode === 'resize') {
         global.CP.Reticle.resizeBy(dx, dy);
-      } else {
+      } else if (!locked) {
         pan(dx, dy);
       }
     } else if (pointers.size === 2) {
       const pts = [...pointers.values()];
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
-      if (pinchLast && pinchLast.dist > 0) {
+      if (pinchLast && pinchLast.dist > 0 && !locked) {
         const factor = dist / pinchLast.dist;
         zoomAt(mid.x - rectLeft(), mid.y - rectTop(), factor);
       }
-      if (pinchLast && panLast === null) {
+      if (pinchLast && panLast === null && !locked) {
         const mx = mid.x - rectLeft(), my = mid.y - rectTop();
         pan(mid.x - pinchLast.mid.x, my - pinchLast.mid.y);
       }
@@ -212,6 +231,7 @@
   function handleWheel(e) {
     if (!getState().image) return;
     e.preventDefault();
+    if (locked) return;
     const rect = canvas.getBoundingClientRect();
     const factor = Math.exp(-e.deltaY * 0.0016);
     zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
@@ -249,6 +269,9 @@
     },
     getView: () => getState().view,
     setView(v) { getState().view = v; },
+    isLocked: () => locked,
+    setLocked,
+    toggleLock: () => setLocked(!locked),
     getState,
     getSize: () => ({ w: cssW, h: cssH }),
     worldFromScreen,
