@@ -87,6 +87,18 @@ body {
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand svg { color: var(--accent); }
 .brand h1 { font-size: 1.1rem; margin: 0; font-weight: 700; letter-spacing: .2px; }
+.brand-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.brand-home:hover { background: var(--panel-2); color: var(--text); }
+.brand-home:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .header-actions { display: flex; gap: 8px; }
 
