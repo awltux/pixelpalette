@@ -167,7 +167,14 @@
         const lab = labOf(res.mixRgb);
         const targetIdx = Math.floor((h % 360) / STEP_DEG) % HUE_STEPS;
         const mixIdx = Math.floor((lab.hue % 360) / STEP_DEG) % HUE_STEPS;
-        recordBandedAt(res.mixRgb, buckets, targetIdx);
+        // The solver always returns its best mix; when the palette can't
+        // reach the target hue (e.g. a single paint) the result is some
+        // unrelated colour, so only attribute it to the target's bucket if
+        // the mix actually lands within a few degrees of that hue. Without
+        // this a degenerate palette's one colour would be stamped into every
+        // hue bucket, grossly inflating its gamut.
+        const dHue = Math.abs(h - lab.hue);
+        if (Math.min(dHue, 360 - dHue) <= 20) recordBandedAt(res.mixRgb, buckets, targetIdx);
         recordBandedAt(res.mixRgb, buckets, mixIdx);
       }
     }
@@ -175,9 +182,10 @@
     // widen each recorded hue into its neighbours: the target hue of a solver
     // run and the hue the mix actually lands on can drift by a few degrees,
     // so fill a small window to avoid a mix poking just outside the region.
-    // Filled per band, so lightness slices stay independent.
+    // Filled per band, so lightness slices stay independent. Tiny palettes
+    // have no mixing drift, so keep their region tight.
     const out = new Float64Array(NBANDS * HUE_STEPS);
-    const FILL = 4; // ±20°
+    const FILL = n <= 2 ? 1 : 4; // ±5° for 1-2 paints, ±20° otherwise
     for (let b = 0; b < NBANDS; b++) {
       const base = b * HUE_STEPS;
       for (let i = 0; i < HUE_STEPS; i++) {

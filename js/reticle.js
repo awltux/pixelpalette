@@ -82,7 +82,7 @@
     const st = getState();
     st.zoom = Math.max(2, Math.min(64, z));
     if (zoomSlider) zoomSlider.value = st.zoom;
-    if (zoomOut) zoomOut.textContent = st.zoom + '×';
+    if (zoomOut) zoomOut.textContent = Math.round(st.zoom) + '×';
     global.CP.Canvas.render();
     drawMagnifier();
     if (!fromUI) sample();

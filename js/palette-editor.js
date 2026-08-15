@@ -26,6 +26,7 @@
   const Palettes = global.Palettes;
 
   let overlay, listEl, doneBtn, addBtn, resetBtn, deleteBtn, nameInput;
+  let addpaintOverlay, addpaintList, addpaintNew, addpaintClose;
   let currentId = 'oil';
 
   function open() {
@@ -49,10 +50,16 @@
     deleteBtn.hidden = !isCustom;
   }
 
+  const paintKey = (p) => (p.name || '') + '|' + (p.brand || '') + '|' + (p.hex || '').toUpperCase();
+
   function makeRow(p, i) {
     const row = document.createElement('div');
     row.className = 'paint-edit';
     const isWC = Palettes.get(currentId).medium.type === 'glaze';
+    /* only user-added paints may be deleted; the palette's core paints
+       (from its defaults / source medium) are protected */
+    const isDefault = Palettes.defaultPaints(currentId)
+      .some(d => paintKey(d) === paintKey(p));
 
     /* line 1: identity */
     const main = document.createElement('div');
@@ -84,6 +91,8 @@
     del.type = 'button';
     del.className = 'pe-del';
     del.textContent = '✕';
+    del.disabled = isDefault;
+    del.title = isDefault ? I18N.t('paintCore') : '';
     del.setAttribute('aria-label', I18N.t('paletteRemove'));
     del.addEventListener('click', () => row.remove());
 
@@ -99,6 +108,24 @@
     /* line 2: artist properties */
     const extra = document.createElement('div');
     extra.className = 'pe-extra';
+
+    const enabled = document.createElement('input');
+    enabled.type = 'checkbox';
+    enabled.className = 'pe-enabled';
+    enabled.checked = p.enabled !== false;
+    enabled.setAttribute('aria-label', I18N.t('propEnabled'));
+    const enabledWrap = document.createElement('label');
+    enabledWrap.className = 'pe-field pe-check';
+    const el = document.createElement('span');
+    el.textContent = I18N.t('propEnabled');
+    enabledWrap.appendChild(enabled);
+    enabledWrap.appendChild(el);
+    const applyEnabled = () => {
+      row.classList.toggle('paint-disabled', !enabled.checked);
+    };
+    applyEnabled();
+    enabled.addEventListener('change', applyEnabled);
+    extra.appendChild(enabledWrap);
 
     extra.appendChild(field(I18N.t('propStrength'), numberInput('pe-strength', p.strength, 0.1, 5, 0.1)));
     extra.appendChild(field(I18N.t('propOpacity'), numberInput('pe-opacity', p.opacity, 0, 100, 1)));
@@ -202,6 +229,7 @@
       const stain = row.querySelector('.pe-stain');
       const undertone = row.querySelector('.pe-undertone');
       const toxic = row.querySelector('.pe-toxic');
+      const enabled = row.querySelector('.pe-enabled');
       paints.push({
         name: n || c,
         brand: brandEl.value.trim(),
@@ -214,6 +242,7 @@
         granulating: gran ? gran.checked : false,
         staining: stain ? stain.value : 'None',
         toxic: toxic ? toxic.checked : false,
+        enabled: enabled ? enabled.checked : true,
       });
     });
     return paints;
@@ -229,8 +258,71 @@
 
   function del() {
     Palettes.removeCustom(currentId);
+    if (global.CP.History && global.CP.History.dropPalette) global.CP.History.dropPalette(currentId);
     close();
     global.CP.MixUI.refresh();
+  }
+
+  /* paints from the built-in parent palette that are not already in the
+     current palette (matched by name | brand | hex) */
+  function missingParentPaints() {
+    const have = new Set(Palettes.get(currentId).paints.map(paintKey));
+    return Palettes.defaultPaints(currentId).filter(p => !have.has(paintKey(p)));
+  }
+
+  /* "Add paint" chooser: pick an existing paint from the built-in parent
+     palette, or create a brand-new previously undefined one */
+  function openAddPaint() {
+    addpaintList.innerHTML = '';
+    const missing = missingParentPaints();
+    if (!missing.length) {
+      const none = document.createElement('div');
+      none.className = 'addpaint-none';
+      none.textContent = I18N.t('addPaintNone');
+      addpaintList.appendChild(none);
+    }
+    missing.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'ap-row';
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', p.name || p.hex);
+
+      const chip = document.createElement('span');
+      chip.className = 'ap-chip';
+      chip.style.background = p.hex;
+
+      const info = document.createElement('div');
+      info.className = 'ap-info';
+      const name = document.createElement('div');
+      name.className = 'ap-name';
+      name.textContent = p.name;
+      const meta = document.createElement('div');
+      meta.className = 'ap-meta';
+      meta.textContent = [p.brand, p.ci, p.lightfast ? 'LF ' + p.lightfast : '',
+        typeof p.opacity === 'number' ? p.opacity + '%' : ''].filter(Boolean).join(' \u00b7 ');
+      info.appendChild(name);
+      info.appendChild(meta);
+
+      row.appendChild(chip);
+      row.appendChild(info);
+
+      const addIt = () => {
+        // explicitly added paints are enabled (usable) straight away
+        listEl.appendChild(makeRow(Object.assign({}, p, { enabled: true }), listEl.children.length));
+        closeAddPaint();
+      };
+      row.addEventListener('click', addIt);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addIt(); }
+      });
+      addpaintList.appendChild(row);
+    });
+    addpaintOverlay.hidden = false;
+  }
+
+  function closeAddPaint() {
+    addpaintOverlay.hidden = true;
   }
 
   function init() {
@@ -241,11 +333,23 @@
     resetBtn = document.getElementById('palette-reset');
     deleteBtn = document.getElementById('palette-delete');
     nameInput = document.getElementById('palette-name-input');
+    addpaintOverlay = document.getElementById('addpaint-overlay');
+    addpaintList = document.getElementById('addpaint-list');
+    addpaintNew = document.getElementById('addpaint-new');
+    addpaintClose = document.getElementById('addpaint-close');
 
     doneBtn.addEventListener('click', save);
-    addBtn.addEventListener('click', () => {
-      listEl.appendChild(makeRow({ name: '', brand: '', hex: '#808080' }, listEl.children.length));
-    });
+    addBtn.addEventListener('click', openAddPaint);
+    if (addpaintNew) {
+      addpaintNew.addEventListener('click', () => {
+        listEl.appendChild(makeRow({ name: '', brand: '', hex: '#808080' }, listEl.children.length));
+        closeAddPaint();
+      });
+    }
+    if (addpaintClose) addpaintClose.addEventListener('click', closeAddPaint);
+    if (addpaintOverlay) {
+      addpaintOverlay.addEventListener('click', (e) => { if (e.target === addpaintOverlay) closeAddPaint(); });
+    }
     resetBtn.addEventListener('click', () => {
       Palettes.resetDefaults(currentId);
       render();
@@ -254,6 +358,7 @@
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !overlay.hidden) close();
+      if (e.key === 'Escape' && addpaintOverlay && !addpaintOverlay.hidden) closeAddPaint();
     });
   }
 

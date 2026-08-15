@@ -349,30 +349,204 @@
 
   function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
+  /* ---------- perceptual refinement ---------- */
+
+  /* unconstrained linear least-squares solve; returns ratios aligned to paints */
+  function linearSolve(paints, targetRgb, medium) {
+    const { A, b } = buildProblem(paints, medium, targetRgb);
+    let f = nnls(A, b);
+    // opaque media are used at full strength (sum = 1).
+    // glazing keeps raw pigment loadings (dilution is free).
+    if (medium.type !== 'glaze') {
+      const total = f.reduce((a, v) => a + v, 0);
+      if (total > 1e-9) f = f.map(v => v / total); else f = f.map(() => 0);
+    }
+    return f;
+  }
+
+  function mixDeltaE(paints, ratios, targetRgb, medium) {
+    const rgb = spectrumToRgb(mixReflectance(paints, ratios, medium));
+    return Color.deltaE(targetRgb, rgb);
+  }
+
+  /* fast perceptual scorer for coordinate descent: precomputes the per-paint
+     absorption/scatter coefficients once, so each trial only does O(N·n)
+     multiplies instead of re-deriving the coefficients (Map lookups, logs)
+     every evaluation. */
+  function makeScorer(paints, targetRgb, medium) {
+    const R_paper = synthesizeReflectance(medium.paper || '#FFFFFF');
+    if (medium.type === 'glaze') {
+      const A = paints.map(p => {
+        const Rp = synthesizeReflectance(spectrumHex(p, true));
+        const s = paintStrength(p);
+        return WLS.map((_, l) => s * -0.5 * Math.log(Math.max(0.02, Rp[l]) / Math.max(0.02, R_paper[l])));
+      });
+      return function (f) {
+        const R = new Array(N);
+        for (let l = 0; l < N; l++) {
+          let s = 0;
+          for (let i = 0; i < f.length; i++) s += f[i] * A[i][l];
+          R[l] = R_paper[l] * Math.exp(-2 * s);
+        }
+        return Color.deltaE(targetRgb, spectrumToRgb(R));
+      };
+    }
+    const Kc = paints.map(p => {
+      const Rp = synthesizeReflectance(spectrumHex(p, false));
+      const S = scatterOf(p.hex) * paintStrength(p);
+      return WLS.map((_, l) => KM_K(Math.max(0.02, Rp[l])) * S);
+    });
+    const Sc = paints.map(p => scatterOf(p.hex) * paintStrength(p));
+    const O = paints.map(p => paintOpacity(p, medium));
+    const floor = (medium && medium.opacity != null) ? medium.opacity : 0.95;
+    return function (f) {
+      const K = new Array(N).fill(0);
+      let S = 0;
+      for (let i = 0; i < f.length; i++) {
+        const fi = f[i];
+        if (fi <= 0) continue;
+        S += fi * Sc[i];
+        for (let l = 0; l < N; l++) K[l] += fi * Kc[i][l];
+      }
+      const R = new Array(N);
+      const SS = Math.max(1e-6, S);
+      for (let l = 0; l < N; l++) {
+        const ks = Math.max(1e-6, K[l]) / SS;
+        R[l] = 1 + ks - Math.sqrt(ks * ks + 2 * ks);
+      }
+      let opSum = 0;
+      for (let i = 0; i < f.length; i++) opSum += f[i] * O[i];
+      const o = Math.max(opSum, floor);
+      for (let l = 0; l < N; l++) R[l] = o * R[l] + (1 - o) * R_paper[l];
+      return Color.deltaE(targetRgb, spectrumToRgb(R));
+    };
+  }
+
+  /* deterministic coordinate descent that minimises perceptual deltaE
+     directly (the NNLS optimum is in linearised KM space, so it is usually
+     not perceptually optimal). Only strictly-better moves are accepted, so
+     it never degrades a mix. Opaque ratios are kept at sum 1; glaze amounts
+     are free dilution. Step sizes halve when a level finds no improvement,
+     and the move budget caps the worst case, keeping solves interactive. */
+  function refinePerceptual(paints, ratios, targetRgb, medium, maxEvals) {
+    const out = ratios.slice();
+    const glaze = medium.type === 'glaze';
+    const support = out.map((v, i) => (v > 1e-4 ? i : -1)).filter(i => i >= 0)
+      .sort((a, b) => out[b] - out[a])
+      .slice(0, 12);
+    const budget = maxEvals || 500;
+    const score = makeScorer(paints, targetRgb, medium);
+    let best = score(out);
+    if (best < 0.05) return toResult(paints, out, medium, best);
+    let step = 0.06;
+    let evals = 1;
+    let pass = 0;
+    while (step >= 0.0006 && pass++ < 10 && evals < budget) {
+      let moved = false;
+      for (let a = 0; a < support.length; a++) {
+        const i = support[a];
+        for (const sign of [-1, 1]) {
+          if (evals >= budget) break;
+          const trial = out.slice();
+          if (glaze) {
+            trial[i] = clamp01(trial[i] + sign * step);
+          } else {
+            trial[i] = Math.max(0, trial[i] + sign * step);
+            const tot = trial.reduce((x, v) => x + v, 0);
+            if (tot > 1e-9) for (let k = 0; k < trial.length; k++) trial[k] /= tot;
+          }
+          let changed = false;
+          for (let k = 0; k < trial.length; k++) {
+            if (Math.abs(trial[k] - out[k]) > 1e-12) { changed = true; break; }
+          }
+          if (!changed) continue;
+          evals++;
+          const s2 = score(trial);
+          if (s2 < best - 1e-6) {
+            best = s2;
+            for (let k = 0; k < out.length; k++) out[k] = trial[k];
+            moved = true;
+          }
+        }
+      }
+      if (!moved) step *= 0.5;
+    }
+    return toResult(paints, out, medium, best);
+  }
+
+  function toResult(paints, ratios, medium, deltaE) {
+    const mixRgb = spectrumToRgb(mixReflectance(paints, ratios, medium));
+    return { ratios, mixRgb, mixHex: Color.rgbToHex(mixRgb.r, mixRgb.g, mixRgb.b), deltaE };
+  }
+
+  /* 'try harder' search: explore alternative paint subsets around the linear
+     pick. Candidates are the top non-support paints by linear weight; for
+     each we try adding it (when under the maxPaints cap) and replacing the
+     smallest current contributor, then re-solve + refine and keep the best.
+     Bounded so an opted-in user pays ~20 extra solves. */
+  function exploreSubsets(paints, baseWeights, ratios, targetRgb, medium, maxPaints) {
+    const n = paints.length;
+    const support = ratios.map((v, i) => (v > 1e-4 ? i : -1)).filter(i => i >= 0);
+    if (!support.length) return null;
+    const capped = maxPaints && maxPaints >= 1 && maxPaints < n;
+    const maxSupport = capped ? Math.min(maxPaints, n) : n;
+
+    const MAX_CAND = 6;
+    const MAX_TRIALS = 12;
+    let best = {
+      ratios: ratios.slice(),
+      deltaE: mixDeltaE(paints, ratios, targetRgb, medium),
+    };
+
+    const cand = baseWeights.map((w, i) => ({ w, i }))
+      .filter(x => !support.includes(x.i) && x.w > 1e-6)
+      .sort((a, b) => b.w - a.w)
+      .slice(0, MAX_CAND);
+
+    let trials = 0;
+    for (const c of cand) {
+      if (trials >= MAX_TRIALS) break;
+      const opts = [];
+      if (support.length < maxSupport) opts.push(support.concat([c.i]));
+      if (support.length) {
+        const small = support.slice().sort((a, b) => ratios[a] - ratios[b])[0];
+        opts.push(support.map(i => (i === small ? c.i : i)));
+      }
+      for (const idx of opts) {
+        if (trials >= MAX_TRIALS) break;
+        trials++;
+        const uniq = Array.from(new Set(idx)).slice(0, maxSupport);
+        const active = uniq.map(i => paints[i]);
+        const refined = refinePerceptual(active, linearSolve(active, targetRgb, medium), targetRgb, medium);
+        if (refined.deltaE < best.deltaE - 1e-6) {
+          const full = paints.map(() => 0);
+          uniq.forEach((orig, j) => { full[orig] = refined.ratios[j]; });
+          best = { ratios: full, deltaE: refined.deltaE, mixRgb: refined.mixRgb, mixHex: refined.mixHex };
+        }
+      }
+    }
+    return (best.deltaE < mixDeltaE(paints, ratios, targetRgb, medium) - 1e-6) ? best : null;
+  }
+
   /* ---------- public API ---------- */
   const Mixing = {
     spectrumToRgb,
     synthesizeReflectance,
     mixReflectance,
 
-    /* unconstrained least-squares solve, returns ratios aligned to paints */
+    /* unconstrained linear least-squares solve, returns ratios aligned to paints */
     _solveInternal(paints, targetRgb, medium) {
-      const { A, b } = buildProblem(paints, medium, targetRgb);
-      let f = nnls(A, b);
-      // opaque media are used at full strength (sum = 1).
-      // glazing keeps raw pigment loadings (dilution is free).
-      if (medium.type !== 'glaze') {
-        const total = f.reduce((a, v) => a + v, 0);
-        if (total > 1e-9) f = f.map(v => v / total); else f = f.map(() => 0);
-      }
-      return f;
+      return linearSolve(paints, targetRgb, medium);
     },
 
     /* solve, optionally restricted to at most maxPaints paints (0 = unlimited).
        uses greedy support selection: pick the top contributors, re-solve on
-       just those, and drop any that go to zero - repeat until stable. */
-    solve(paints, targetRgb, medium, maxPaints) {
-      let f = this._solveInternal(paints, targetRgb, medium);
+       just those, and drop any that go to zero - repeat until stable.
+       Then always refines the result perceptually (coordinate descent on
+       deltaE). With opts.tryHarder it also explores alternative paint subsets. */
+    solve(paints, targetRgb, medium, maxPaints, opts) {
+      let f = linearSolve(paints, targetRgb, medium);
+      const baseWeights = f.slice();
       const n = paints.length;
       if (maxPaints && maxPaints >= 1 && maxPaints < n) {
         let support = f.map((v, i) => ({ v, i }))
@@ -382,7 +556,7 @@
           .map(x => x.i);
         for (let pass = 0; pass < 5 && support.length; pass++) {
           const active = support.map(i => paints[i]);
-          const fr = this._solveInternal(active, targetRgb, medium);
+          const fr = linearSolve(active, targetRgb, medium);
           const full = paints.map(() => 0);
           support.forEach((orig, j) => { full[orig] = fr[j]; });
           f = full;
@@ -394,14 +568,21 @@
           support = next;
         }
       }
-      const conc = f.reduce((a, v) => a + v, 0);
-
-      const mixR = mixReflectance(paints, f, medium);
-      const mixRgb = spectrumToRgb(mixR);
-      const mixHex = Color.rgbToHex(mixRgb.r, mixRgb.g, mixRgb.b);
-      const deltaE = Color.deltaE(targetRgb, mixRgb);
+      let result = refinePerceptual(paints, f, targetRgb, medium);
+      if (opts && opts.tryHarder && result.deltaE > 0.1) {
+        const explored = exploreSubsets(paints, baseWeights, result.ratios, targetRgb, medium, maxPaints);
+        if (explored && explored.deltaE < result.deltaE - 1e-6) result = explored;
+      }
+      const conc = result.ratios.reduce((a, v) => a + v, 0);
       const sum = conc || 1;
-      return { ratios: f, conc, normalized: f.map(v => v / sum), mixRgb, mixHex, deltaE };
+      return {
+        ratios: result.ratios,
+        conc,
+        normalized: result.ratios.map(v => v / sum),
+        mixRgb: result.mixRgb,
+        mixHex: result.mixHex,
+        deltaE: result.deltaE,
+      };
     },
 
     /* recompute mix colour from recipe amounts - for slider editing.
@@ -421,7 +602,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = Mixing;
-    module.exports.__internal = { synthesizeReflectance, spectrumToRgb, nnls, buildProblem };
+    module.exports.__internal = { synthesizeReflectance, spectrumToRgb, nnls, buildProblem, linearSolve, refinePerceptual, exploreSubsets };
   } else {
     global.Mixing = Mixing;
   }

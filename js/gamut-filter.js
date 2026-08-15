@@ -75,7 +75,34 @@
 
   function currentPalette() {
     const P = global.Palettes;
-    return P.get(P.getSelected());
+    const info = P.get(P.getSelected());
+    info.paints = info.paints.filter(p => p.enabled !== false);
+    return info;
+  }
+
+  /* per-hue tint anchors: for each hue bucket, the Lab (a,b) of the paint
+     nearest in hue. Used to tint pixels whose hue the palette can't reach at
+     all (e.g. a single-paint palette) toward the palette's colour instead of
+     dropping them to neutral grey. */
+  function hueAnchors(paints) {
+    const anchors = new Array(HUE_STEPS);
+    const labs = (paints || []).map((p) => {
+      const c = global.Color.hexToRgb(p.hex);
+      const l = global.Color.rgbToLab(c.r, c.g, c.b);
+      return { a: l.a, b: l.b, hue: (Math.atan2(l.b, l.a) * 180 / Math.PI + 360) % 360 };
+    });
+    if (!labs.length) return anchors;
+    for (let hi = 0; hi < HUE_STEPS; hi++) {
+      const center = hi * STEP_DEG;
+      let best = labs[0], bestD = Infinity;
+      for (const pl of labs) {
+        const d = Math.abs(pl.hue - center);
+        const dist = Math.min(d, 360 - d);
+        if (dist < bestD) { bestD = dist; best = pl; }
+      }
+      anchors[hi] = { a: best.a, b: best.b };
+    }
+    return anchors;
   }
 
   function original() {
@@ -93,7 +120,7 @@
      the mixer would judge them. Clipping to the strict boundary
      always satisfies Gamut.pointInside, which allows its own +2.
      Hot path is allocation-light and uses the linear LUT above. */
-  function clipPixel(r, g, b, pals) {
+  function clipPixel(r, g, b, pals, anchors) {
     let cr = r, cg = g, cb = b;
     for (let iter = 0; iter < 8; iter++) {
       const lr = LIN_LUT[cr], lg = LIN_LUT[cg], lb = LIN_LUT[cb];
@@ -111,8 +138,18 @@
       const hue = Math.atan2(bv, av) * 180 / Math.PI + 360;
       const maxChroma = Gamut.boundaryAt(pals, L, hueIndex(hue));
       if (chroma <= maxChroma + 1e-6) break;
-      const s = maxChroma / chroma;
-      const na = av * s, nb = bv * s;
+      let na, nb;
+      if (maxChroma < 2 && anchors && anchors[hueIndex(hue)]) {
+        // The palette cannot make this hue at all (e.g. a single-paint
+        // palette): tint the pixel toward the nearest paint's colour while
+        // keeping its lightness, so the result stays monochrome in the
+        // paint's colour rather than collapsing to grey.
+        na = anchors[hueIndex(hue)].a;
+        nb = anchors[hueIndex(hue)].b;
+      } else {
+        const s = maxChroma / chroma;
+        na = av * s; nb = bv * s;
+      }
       // Lab -> RGB, keeping lightness
       const fy2 = (L + 16) / 116;
       const x2 = F_INV(fy2 + na / 500) * 0.95047;
@@ -136,6 +173,7 @@
   function filterCanvas(src, w, h, paints, medium, sig, t) {
     return new Promise((resolve) => {
       const pals = Gamut.compute(paints, medium).pals;
+      const anchors = hueAnchors(paints);
       const out = document.createElement('canvas');
       out.width = w;
       out.height = h;
@@ -159,7 +197,7 @@
         for (let row = y; row < end; row++) {
           let i = row * w * 4;
           for (let x = 0; x < w; x++, i += 4, si += 4) {
-            const p = clipPixel(d[i], d[i + 1], d[i + 2], pals);
+            const p = clipPixel(d[i], d[i + 1], d[i + 2], pals, anchors);
             chunk[si] = p.r;
             chunk[si + 1] = p.g;
             chunk[si + 2] = p.b;
@@ -268,6 +306,6 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = global.CP.GamutFilter;
-    module.exports.__internal = { clipPixel, paletteSig };
+    module.exports.__internal = { clipPixel, paletteSig, hueAnchors };
   }
 })(typeof window !== 'undefined' ? window : globalThis);

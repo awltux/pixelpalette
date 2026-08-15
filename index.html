@@ -216,52 +216,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
       </div>
     </details>
 
-    <details class="panel readout-panel" id="panel-readout" open>
-      <summary data-i18n="panelReadout">Colour</summary>
-      <div class="readout-area" id="readout-area">
-        <div class="swatch-row">
-          <div class="swatch-col">
-            <div class="swatch" id="colour-swatch" role="button" tabindex="0"
-                 data-i18n-attr="aria-label:targetSwatch" aria-pressed="true"></div>
-            <span class="swatch-label" data-i18n="targetSwatch">Target</span>
-          </div>
-          <div class="swatch-col" id="mixed-swatch-col" hidden>
-            <div class="swatch" id="mixed-swatch" role="button" tabindex="0"
-                 data-i18n-attr="aria-label:mixSwatch" aria-pressed="false"></div>
-            <span class="swatch-label" data-i18n="mixSwatch">Mixed</span>
-          </div>
-          <div class="swatch-info">
-            <div class="readout-row">
-              <span class="fmt">HEX</span>
-              <code id="hex-val">#000000</code>
-              <button class="copy" data-copy="hex" type="button" data-i18n="copy">Copy</button>
-            </div>
-            <div class="readout-row">
-              <span class="fmt">RGB</span>
-              <code id="rgb-val">0, 0, 0</code>
-              <button class="copy" data-copy="rgb" type="button" data-i18n="copy">Copy</button>
-            </div>
-            <div class="readout-row">
-              <span class="fmt">HSL</span>
-              <code id="hsl-val">0°, 0%, 0%</code>
-              <button class="copy" data-copy="hsl" type="button" data-i18n="copy">Copy</button>
-            </div>
-            <div class="readout-row">
-              <span class="fmt">CMYK</span>
-              <code id="cmyk-val">0, 0, 0, 100</code>
-              <button class="copy" data-copy="cmyk" type="button" data-i18n="copy">Copy</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="history" id="history">
-        <div class="history-head">
-          <h3 data-i18n="history">History</h3>
-          <button id="history-clear" class="btn btn-ghost btn-sm" type="button" data-i18n="historyClear" hidden>Clear</button>
-        </div>
-        <div class="history-strip" id="history-strip"></div>
-      </div>
-    </details>
+
 
     <section class="panel mix-panel" id="panel-mix">
       <h2 data-i18n="panelMix">Paint mixing</h2>
@@ -269,11 +224,20 @@ Google Search Console verification: paste the meta tag here after adding the sit
         <label for="palette-select" class="ctrl-label" data-i18n="palette">Palette</label>
         <select id="palette-select"></select>
         <span class="mix-top-actions">
+          <button id="btn-fit-palette" class="btn btn-ghost" type="button" data-i18n="fitButton" title="Fit to image">Fit to image</button>
           <button id="btn-dup-palette" class="btn btn-ghost" type="button" data-i18n="btnDuplicatePalette" title="Duplicate palette">Duplicate</button>
           <button id="btn-edit-palette" class="btn btn-ghost" type="button" data-i18n="btnEditPalette">Edit</button>
         </span>
       </div>
       <div class="medium-readout" id="medium-readout"></div>
+
+      <div class="history" id="history">
+        <div class="history-head">
+          <h3 data-i18n="history">History</h3>
+          <button id="history-clear" class="btn btn-ghost btn-sm" type="button" data-i18n="historyClear" hidden>Clear</button>
+        </div>
+        <div class="history-strip" id="history-strip"></div>
+      </div>
 
       <div class="gamut-block">
         <div class="gamut-head">
@@ -352,9 +316,56 @@ Google Search Console verification: paste the meta tag here after adding the sit
           </svg>
           <span data-i18n="btnLockMix">Lock mix</span>
         </button>
+        <button id="btn-use-full" class="btn btn-ghost" type="button" aria-pressed="false">
+          <span data-i18n="btnUseFull">Use Full Palette</span>
+        </button>
         <button id="btn-resolve" class="btn btn-ghost" type="button" data-i18n="btnResolve">Re-solve mix</button>
+        <label class="toolbar-check mix-tryharder" data-i18n-attr="title:tryHarderHelp">
+          <input type="checkbox" id="chk-try-harder">
+          <span class="toolbar-check-label" data-i18n="tryHarder">Try harder</span>
+        </label>
       </div>
     </section>
+
+    <details class="panel readout-panel" id="panel-readout" open>
+      <summary data-i18n="panelReadout">Colour</summary>
+      <div class="readout-area" id="readout-area">
+        <div class="swatch-row">
+          <div class="swatch-col">
+            <div class="swatch" id="colour-swatch" role="button" tabindex="0"
+                 data-i18n-attr="aria-label:targetSwatch" aria-pressed="true"></div>
+            <span class="swatch-label" data-i18n="targetSwatch">Target</span>
+          </div>
+          <div class="swatch-col" id="mixed-swatch-col" hidden>
+            <div class="swatch" id="mixed-swatch" role="button" tabindex="0"
+                 data-i18n-attr="aria-label:mixSwatch" aria-pressed="false"></div>
+            <span class="swatch-label" data-i18n="mixSwatch">Mixed</span>
+          </div>
+          <div class="swatch-info">
+            <div class="readout-row">
+              <span class="fmt">HEX</span>
+              <code id="hex-val">#000000</code>
+              <button class="copy" data-copy="hex" type="button" data-i18n="copy">Copy</button>
+            </div>
+            <div class="readout-row">
+              <span class="fmt">RGB</span>
+              <code id="rgb-val">0, 0, 0</code>
+              <button class="copy" data-copy="rgb" type="button" data-i18n="copy">Copy</button>
+            </div>
+            <div class="readout-row">
+              <span class="fmt">HSL</span>
+              <code id="hsl-val">0°, 0%, 0%</code>
+              <button class="copy" data-copy="hsl" type="button" data-i18n="copy">Copy</button>
+            </div>
+            <div class="readout-row">
+              <span class="fmt">CMYK</span>
+              <code id="cmyk-val">0, 0, 0, 100</code>
+              <button class="copy" data-copy="cmyk" type="button" data-i18n="copy">Copy</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
 
     <!-- Ad slot: sidebar rectangle (AdSense placeholder) -->
     <div class="ad-slot ad-sidebar" id="ad-sidebar">
@@ -402,6 +413,53 @@ Google Search Console verification: paste the meta tag here after adding the sit
       <button id="palette-delete" class="btn btn-danger" type="button" data-i18n="paletteDelete" hidden>Delete palette</button>
       <span class="spacer"></span>
       <button id="palette-close" class="btn btn-primary" type="button" data-i18n="paletteDone">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fit-palette modal: build a palette from the paints that best suit the image -->
+<div class="overlay" id="fit-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fit-overlay-title">
+    <h2 id="fit-overlay-title" data-i18n="fitTitle">Fit palette to image</h2>
+    <p class="fit-desc" data-i18n="fitDesc">Build a new palette from the paints that best match the colours in this image.</p>
+    <div class="fit-source">
+      <label class="pe-field pe-check">
+        <input type="radio" name="fit-source" id="fit-enabled" checked>
+        <span data-i18n="fitEnabled">Enabled paints only</span>
+      </label>
+      <label class="pe-field pe-check">
+        <input type="radio" name="fit-source" id="fit-all">
+        <span data-i18n="fitAll">All paints (enabled + disabled)</span>
+      </label>
+    </div>
+    <label class="fit-count-field" for="fit-count">
+      <span data-i18n="fitCount">Number of paints</span>
+      <input type="number" id="fit-count" min="1" value="8">
+    </label>
+    <div class="fit-preview">
+      <div class="fit-summary" id="fit-summary"></div>
+      <div class="fit-chips" id="fit-chips"></div>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="fit-cancel" class="btn btn-ghost" type="button" data-i18n="fitCancel">Cancel</button>
+      <button id="fit-create" class="btn btn-primary" type="button" data-i18n="fitCreate">Create palette</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add-paint chooser modal: pick an existing parent-palette paint or create a new one -->
+<div class="overlay" id="addpaint-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="addpaint-overlay-title">
+    <h2 id="addpaint-overlay-title" data-i18n="addPaintTitle">Add paint</h2>
+    <div class="addpaint-section">
+      <div class="addpaint-section-title" data-i18n="addPaintFromPalette">From the built-in palette</div>
+      <div class="addpaint-list" id="addpaint-list"></div>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="addpaint-close" class="btn btn-ghost" type="button" data-i18n="addPaintCancel">Cancel</button>
+      <button id="addpaint-new" class="btn btn-primary" type="button" data-i18n="addPaintNew">Create new paint</button>
     </div>
   </div>
 </div>
@@ -573,6 +631,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <script src="js/mix-ui.js"></script>
 <script src="js/history.js"></script>
 <script src="js/palette-editor.js"></script>
+<script src="js/fit-palette.js"></script>
 <script src="js/tutorial.js"></script>
 <script src="js/app.js"></script>
 </body>

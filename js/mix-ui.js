@@ -30,16 +30,39 @@
 
   const els = {};
   const FILTER_KEY = 'pp.filters';
+  const TRY_HARDER_KEY = 'pp.tryHarder';
   let gamutRAF = 0;
   let gamutResize = null;
   const ui = {
     paints: [],
+    allPaints: [],
     medium: null,
     recipe: [],
     target: null,
     result: null,
     filter: loadFilters(),
+    /* full-palette solve: all paints (incl. disabled) are always tried so the
+       Use Full Palette button can show that mix. fullPick = the full-palette
+       solution; fullBetter = it beats the enabled solve. usingFull = the
+       displayed mix is the full-palette solution. */
+    usingFull: false,
+    fullPick: null,
+    fullBetter: false,
+    fullRecipe: [],
+    /* 'try harder': also explore alternative paint subsets per solve, so
+       restricted palettes (few paints, or a max-paint-count filter) can land
+       on a better mix at the cost of a slower solve. */
+    tryHarder: loadTryHarder(),
   };
+
+  function loadTryHarder() {
+    try { return localStorage.getItem(TRY_HARDER_KEY) === '1'; } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function saveTryHarder() {
+    try { localStorage.setItem(TRY_HARDER_KEY, ui.tryHarder ? '1' : '0'); } catch (e) { /* ignore */ }
+  }
 
   /* which swatch the colour readouts currently show: 'target' or 'mixed' */
   let activeSwatch = 'target';
@@ -72,6 +95,7 @@
     els.restore = document.getElementById('mix-restore');
     els.resolve = document.getElementById('btn-resolve');
     els.lockMix = document.getElementById('btn-lock-mix');
+    els.useFull = document.getElementById('btn-use-full');
     els.edit = document.getElementById('btn-edit-palette');
     els.dup = document.getElementById('btn-dup-palette');
     els.readout = document.getElementById('medium-readout');
@@ -105,6 +129,7 @@
       maxPaints: document.getElementById('filter-maxpaints'),
       toxic: document.getElementById('filter-toxic'),
     };
+    els.tryHarder = document.getElementById('chk-try-harder');
 
     populateSelect();
     loadPalette(Palettes.getSelected());
@@ -114,6 +139,15 @@
       els.filters[key].addEventListener('change', () => {
         ui.filter[key] = els.filters[key].value;
         saveFilters();
+        if (ui.target) update(ui.target);
+      });
+    }
+
+    if (els.tryHarder) {
+      els.tryHarder.checked = !!ui.tryHarder;
+      els.tryHarder.addEventListener('change', () => {
+        ui.tryHarder = els.tryHarder.checked;
+        saveTryHarder();
         if (ui.target) update(ui.target);
       });
     }
@@ -128,17 +162,33 @@
       els.lockMix.addEventListener('click', toggleLockMix);
     }
 
+    if (els.useFull) {
+      els.useFull.addEventListener('click', () => {
+        if (ui.usingFull) revertFull();
+        else applyFullOffer();
+      });
+    }
+
     els.resolve.addEventListener('click', () => {
       if (!ui.target || !ui.paints.length) return;
+      const wasFull = ui.usingFull;
+      resetFullState();
       const avail = filterPaints();
       if (!avail.paints.length) return;
       const { res, pool } = pickSolve(avail, ui.target);
       if (!res) return;
-      const current = ui.result ? ui.result.deltaE : Infinity;
-      if (effectiveDeltaE(res) < current) {
+      const enabledDe = effectiveDeltaE(res);
+      const currentDe = ui.result ? effectiveDeltaE(ui.result) : Infinity;
+      // Coming from the full-palette view, always land back on the enabled
+      // solve (never leave the stale full result displayed). Otherwise keep
+      // a better manual tweak and only re-apply when the solve improves.
+      if (wasFull || enabledDe < currentDe) {
         applyResult(res, pool);
         scheduleHistoryMixUpdate();
       }
+      // re-offer the full palette against the enabled solve (same target)
+      checkFullOffer(ui.target, enabledDe);
+      render();
     });
 
     els.edit.addEventListener('click', () => {
@@ -180,8 +230,11 @@
 
   function loadPalette(id, opts) {
     const { paints, medium } = Palettes.get(id);
-    ui.paints = paints || [];
+    ui.allPaints = paints || [];
+    ui.paints = ui.allPaints.filter(p => p.enabled !== false);
     ui.medium = medium;
+    resetFullState();
+    if (global.CP.History && global.CP.History.setPalette) global.CP.History.setPalette(id);
     updateMediumReadout();
     updateFilterVisibility();
     renderGamut();
@@ -259,8 +312,10 @@
   function reloadPaints() {
     const id = els.select.value;
     const { paints, medium } = Palettes.get(id);
-    ui.paints = paints;
+    ui.allPaints = paints || [];
+    ui.paints = ui.allPaints.filter(p => p.enabled !== false);
     ui.medium = medium;
+    resetFullState();
     updateFilterVisibility();
     renderGamut();
     if (global.CP.GamutFilter) global.CP.GamutFilter.onPaletteChange();
@@ -280,11 +335,13 @@
      than half), the filter is satisfied regardless of the minor tints. */
   const GRAN_MAIN_SHARE = 0.5;
 
-  /* paints that pass the active filters, with their indices in ui.paints */
-  function filterPaints() {
+  /* paints that pass the active filters, with their indices in the given
+     list (defaults to the enabled paints) */
+  function filterPaintsFor(list) {
+    const paints = list || ui.paints;
     const f = ui.filter;
     const indices = [];
-    ui.paints.forEach((p, i) => {
+    paints.forEach((p, i) => {
       if (f.lightfast !== 'all') {
         const rank = LIGHTFAST_RANK[p.lightfast] || 4;
         const min = LIGHTFAST_RANK[f.lightfast] || 1;
@@ -296,8 +353,10 @@
       if (f.toxic === 'yes' && !p.toxic) return;
       indices.push(i);
     });
-    return { indices, paints: indices.map(i => ui.paints[i]) };
+    return { indices, paints: indices.map(i => paints[i]) };
   }
+
+  function filterPaints() { return filterPaintsFor(ui.paints); }
 
   /* fraction of the used (non-trace) mix amount that is granulating */
   function granulatingShare(ratios, paints) {
@@ -324,16 +383,18 @@
      dominant character, keep it (minor tints stay free); otherwise fall
      back to a pool restricted to the requested kind, so the filter is
      never silently ignored. */
-  function pickSolve(avail, targetRgb) {
+  function pickSolve(avail, targetRgb, paintsList) {
+    const list = paintsList || ui.paints;
     const f = ui.filter.granulating;
-    const res = Mixing.solve(avail.paints, targetRgb, ui.medium, maxPaints());
+    const opts = { tryHarder: ui.tryHarder };
+    const res = Mixing.solve(avail.paints, targetRgb, ui.medium, maxPaints(), opts);
     if (f !== 'yes' && f !== 'no') return { res, pool: avail };
     if (granulatingMatches(res.ratios, avail.paints)) return { res, pool: avail };
     const wantGran = f === 'yes';
-    const idxs = avail.indices.filter(idx => !!ui.paints[idx].granulating === wantGran);
+    const idxs = avail.indices.filter(idx => !!list[idx].granulating === wantGran);
     if (!idxs.length) return { res: null, pool: avail };
-    const pool = { indices: idxs, paints: idxs.map(i => ui.paints[i]) };
-    return { res: Mixing.solve(pool.paints, targetRgb, ui.medium, maxPaints()), pool };
+    const pool = { indices: idxs, paints: idxs.map(i => list[i]) };
+    return { res: Mixing.solve(pool.paints, targetRgb, ui.medium, maxPaints(), opts), pool };
   }
 
   function applyResult(res, pool) {
@@ -360,13 +421,22 @@
     return res.deltaE;
   }
 
+  function resetFullState() {
+    ui.usingFull = false;
+    ui.fullPick = null;
+    ui.fullBetter = false;
+    ui.fullRecipe = [];
+  }
+
   function update(targetRgb) {
     ui.target = targetRgb;
     if (!ui.paints.length) return;
+    resetFullState();
     const avail = filterPaints();
     ui.recipe = ui.paints.map(() => 0);
     if (!avail.paints.length) {
       ui.result = null;
+      checkFullOffer(targetRgb);
       render();
       renderGamut();
       return;
@@ -374,11 +444,52 @@
     const { res, pool } = pickSolve(avail, targetRgb);
     if (!res) {
       ui.result = null;
+      checkFullOffer(targetRgb);
       render();
       renderGamut();
       return;
     }
     applyResult(res, pool);
+    checkFullOffer(targetRgb, effectiveDeltaE(res));
+    render();
+  }
+
+  /* solve the target with the FULL palette (enabled + disabled, same
+     filters). Always stores the full-palette solution in ui.fullPick and
+     sets ui.fullBetter when it beats the enabled solve (baseline defaults
+     to the current result), so the button can stay available and show when
+     the full palette is an improvement. */
+  function checkFullOffer(targetRgb, baseline) {
+    ui.fullPick = null;
+    ui.fullBetter = false;
+    if (!ui.allPaints.length) return;
+    const avail = filterPaintsFor(ui.allPaints);
+    if (!avail.paints.length) return;
+    const pick = pickSolve(avail, targetRgb, ui.allPaints);
+    if (!pick.res) return;
+    ui.fullPick = pick;
+    const ref = baseline !== undefined ? baseline : (ui.result ? effectiveDeltaE(ui.result) : Infinity);
+    if (effectiveDeltaE(pick.res) < ref) ui.fullBetter = true;
+  }
+
+  function applyFullOffer() {
+    if (!ui.fullPick && ui.target) checkFullOffer(ui.target);
+    if (!ui.fullPick) return;
+    const pick = ui.fullPick;
+    ui.usingFull = true;
+    ui.fullRecipe = ui.allPaints.map(() => 0);
+    pick.pool.indices.forEach((idx, j) => { ui.fullRecipe[idx] = pick.res.ratios[j]; });
+    ui.result = Object.assign({}, pick.res);
+    if (pick.res.deltaE > 12) {
+      const used = pick.res.ratios.filter((v) => v > 0.005).length;
+      if (used <= 1) ui.result.deltaE = 999;
+    }
+    render();
+    renderGamut();
+  }
+
+  function revertFull() {
+    if (ui.target) update(ui.target);
   }
 
   function maxPaints() {
@@ -457,18 +568,30 @@
     // cannot be mixed well with this palette
     updateDifficulty();
 
+    // the paints/recipe actually displayed: the enabled palette, or the full
+    // palette when the user switched to the full-palette solution
+    const activePaints = ui.usingFull ? ui.allPaints : ui.paints;
+    const activeRecipe = ui.usingFull ? ui.fullRecipe : ui.recipe;
+
     // top paints by amount
-    const entries = ui.recipe
-      .map((amt, i) => ({ amt, paint: ui.paints[i] }))
+    const entries = activeRecipe
+      .map((amt, i) => ({ amt, paint: activePaints[i] }))
       .filter(e => e.amt > 0.005)
       .sort((a, b) => b.amt - a.amt)
       .slice(0, 8);
 
     els.list.innerHTML = '';
+    if (ui.usingFull) {
+      const note = document.createElement('div');
+      note.className = 'mix-full-note';
+      note.textContent = I18N.t('fullMixNote');
+      els.list.appendChild(note);
+    }
     const max = ui.medium.type === 'glaze' ? 200 : 100;
     entries.forEach((e, idx) => {
       const row = document.createElement('div');
       row.className = 'mix-item';
+      if (e.paint.enabled === false) row.classList.add('mix-off-row');
       const tip = paintTooltip(e.paint);
       row.title = tip || e.paint.hex;
 
@@ -488,6 +611,13 @@
         badge.textContent = I18N.t('propToxic');
         badge.title = I18N.t('propToxic');
         name.appendChild(badge);
+      }
+      if (e.paint.enabled === false) {
+        const off = document.createElement('span');
+        off.className = 'mix-off';
+        off.textContent = I18N.t('paintNotEnabled');
+        off.title = I18N.t('paintNotEnabled');
+        name.appendChild(off);
       }
       const brand = document.createElement('div');
       brand.className = 'mix-item-brand';
@@ -513,37 +643,37 @@
       updateLabels();
 
       slider.addEventListener('input', () => {
-        const idxGlobal = ui.paints.indexOf(e.paint);
+        const idxGlobal = activePaints.indexOf(e.paint);
         const v = parseFloat(slider.value) / 100;
         if (ui.medium.type === 'glaze') {
-          ui.recipe[idxGlobal] = v;
+          activeRecipe[idxGlobal] = v;
         } else {
-          ui.recipe[idxGlobal] = v;
-          const total = ui.recipe.reduce((a, b) => a + b, 0);
+          activeRecipe[idxGlobal] = v;
+          const total = activeRecipe.reduce((a, b) => a + b, 0);
           if (total > 0) {
             const ratio = total / 1;
-            ui.recipe = ui.recipe.map(a => a / ratio);
+            for (let i = 0; i < activeRecipe.length; i++) activeRecipe[i] = activeRecipe[i] / ratio;
           }
         }
-        e.amt = ui.recipe[idxGlobal];
-        const mix = Mixing.mixColour(ui.paints, ui.recipe, ui.medium);
+        e.amt = activeRecipe[idxGlobal];
+        const mix = Mixing.mixColour(activePaints, activeRecipe, ui.medium);
         ui.result.mixHex = mix.mixHex;
         ui.result.mixRgb = mix.mixRgb;
         ui.result.deltaE = Color.deltaE(ui.target, mix.mixRgb);
-        if (ui.medium.type === 'glaze') ui.result.conc = ui.recipe.reduce((a, b) => a + b, 0);
+        if (ui.medium.type === 'glaze') ui.result.conc = activeRecipe.reduce((a, b) => a + b, 0);
         els.mixSwatch.style.background = mix.mixHex;
         mixedHex = mix.mixHex;
         els.delta.textContent = deltaText();
         updateDifficulty();
         syncReadout();
-        scheduleHistoryMixUpdate();
+        if (!ui.usingFull) scheduleHistoryMixUpdate();
         renderGamut();
         updateLabels();
         // sync sibling slider values (keep fractional values when a slider is
         // in Ctrl fine-drag mode, i.e. its step has been relaxed to "any")
         const siblingInputs = els.list.querySelectorAll('input[type="range"]');
-        const shown = entries.map(en => ui.paints.indexOf(en.paint));
-        ui.recipe.forEach((amt, i) => {
+        const shown = entries.map(en => activePaints.indexOf(en.paint));
+        activeRecipe.forEach((amt, i) => {
           const idx = shown.indexOf(i);
           if (idx < 0) return;
           const inp = siblingInputs[idx];
@@ -566,6 +696,7 @@
       els.list.appendChild(note);
     }
     updateLockMixBtn();
+    updateFullBtn();
     syncReadout();
   }
 
@@ -599,7 +730,21 @@
     label.textContent = I18N.t(locked ? 'btnUnlockMix' : 'btnLockMix');
     els.lockMix.classList.toggle('is-on', locked);
     els.lockMix.setAttribute('aria-pressed', locked ? 'true' : 'false');
-    els.lockMix.disabled = !has;
+    els.lockMix.disabled = !has || ui.usingFull;
+    els.lockMix.title = ui.usingFull ? I18N.t('fullMixNote') : '';
+  }
+
+  /* the Use Full Palette toggle: always available. Turns green when the
+     full-palette solve beats the enabled-palette one, and shows the active
+     state while the full mix is displayed. */
+  function updateFullBtn() {
+    if (!els.useFull) return;
+    els.useFull.hidden = false;
+    const label = els.useFull.querySelector('[data-i18n]') || els.useFull;
+    label.textContent = I18N.t(ui.usingFull ? 'btnUseEnabled' : 'btnUseFull');
+    els.useFull.classList.toggle('is-on', ui.usingFull);
+    els.useFull.classList.toggle('is-better', !ui.usingFull && !!ui.fullBetter);
+    els.useFull.setAttribute('aria-pressed', ui.usingFull ? 'true' : 'false');
   }
 
   /* show a recorded mix colour in the colour pane's Mixed swatch */
@@ -646,6 +791,7 @@
      entry snapshot is captured at change time (a loupe move before the write
      must not rebind the tweak to a different target). */
   function scheduleHistoryMixUpdate() {
+    if (ui.usingFull) return;
     if (!ui.target || !ui.result || !ui.result.mixHex) return;
     const ctx = getContext();
     const entry = {
@@ -654,11 +800,12 @@
       palette: ctx.palette,
       recipe: ctx.recipe,
     };
+    const paletteId = ctx.palette ? ctx.palette.id : null;
     if (historyTweakTimer) clearTimeout(historyTweakTimer);
     historyTweakTimer = setTimeout(() => {
       historyTweakTimer = null;
       if (global.CP.History && global.CP.History.updateMixedForTarget) {
-        global.CP.History.updateMixedForTarget(entry);
+        global.CP.History.updateMixedForTarget(entry, paletteId);
       }
     }, 500);
   }

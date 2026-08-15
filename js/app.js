@@ -311,6 +311,7 @@
     global.CP.MixUI.init();
     global.CP.GamutFilter.init();
     global.CP.PaletteEditor.init();
+    global.CP.FitPalette.init();
     global.CP.Tutorial.init();
 
     initToolbar();
