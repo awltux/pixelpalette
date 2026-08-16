@@ -349,6 +349,12 @@
 
   function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
+  const rgbLab = (rgb) => {
+    const L = Color.rgbToLab(rgb.r, rgb.g, rgb.b);
+    return [L.L, L.a, L.b];
+  };
+  const labDist = (a, b) => Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+
   /* ---------- perceptual refinement ---------- */
 
   /* unconstrained linear least-squares solve; returns ratios aligned to paints */
@@ -528,6 +534,56 @@
     return (best.deltaE < mixDeltaE(paints, ratios, targetRgb, medium) - 1e-6) ? best : null;
   }
 
+  /* rescue for collapsed solves: the linear pick can land on a single,
+     perceptually unrelated pigment (e.g. a brown "solved" for a dark blue)
+     when the paints closest to the target do much better. The perceptual
+     refinement can only adjust already-chosen paints, never add or replace
+     them, so we try small subsets here: keep the support and add the top
+     nearest paints, AND solve from scratch on the nearest paints alone
+     (dropping the bad linear pick). Bounded, only invoked for poor results,
+     and only ever accepted when it lowers the error. */
+  function rescuePoorSolve(paints, ratios, targetRgb, medium) {
+    const support = ratios.map((v, i) => (v > 1e-4 ? i : -1)).filter(i => i >= 0);
+    if (!support.length) return null;
+    const tLab = rgbLab(targetRgb);
+    const paintLabs = paints.map(p => rgbLab(Color.hexToRgb(p.hex)));
+    const ranked = paints.map((p, i) => ({ i, d: labDist(tLab, paintLabs[i]) }))
+      .filter(x => !support.includes(x.i))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 4);
+    if (!ranked.length) return null;
+
+    let best = {
+      ratios: ratios.slice(),
+      deltaE: mixDeltaE(paints, ratios, targetRgb, medium),
+    };
+
+    const subsets = [];
+    // A) keep the current support and add one / two nearest paints
+    for (const c of ranked) subsets.push(support.concat([c.i]));
+    if (ranked.length >= 2) subsets.push(support.concat([ranked[0].i, ranked[1].i]));
+    // B) replace the (possibly wrong) support with the nearest paints alone
+    subsets.push([ranked[0].i]);
+    if (ranked.length >= 2) subsets.push([ranked[0].i, ranked[1].i]);
+    if (ranked.length >= 3) subsets.push([ranked[0].i, ranked[1].i, ranked[2].i]);
+
+    const seen = new Set();
+    for (const idx of subsets) {
+      const uniq = Array.from(new Set(idx)).sort((a, b) => a - b);
+      const key = uniq.join(',');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const active = uniq.map(i => paints[i]);
+      const refined = refinePerceptual(active, linearSolve(active, targetRgb, medium), targetRgb, medium);
+      if (refined.deltaE < best.deltaE - 1e-6) {
+        const full = paints.map(() => 0);
+        uniq.forEach((orig, j) => { full[orig] = refined.ratios[j]; });
+        best = { ratios: full, deltaE: refined.deltaE, mixRgb: refined.mixRgb, mixHex: refined.mixHex };
+      }
+    }
+    return (best.deltaE < mixDeltaE(paints, ratios, targetRgb, medium) - 1e-6) ? best : null;
+  }
+
   /* ---------- public API ---------- */
   const Mixing = {
     spectrumToRgb,
@@ -573,6 +629,17 @@
         const explored = exploreSubsets(paints, baseWeights, result.ratios, targetRgb, medium, maxPaints);
         if (explored && explored.deltaE < result.deltaE - 1e-6) result = explored;
       }
+      // rescue a collapsed solve: when the mix is still poor with a single
+      // paint, the linear pick may have chosen a perceptually-unrelated
+      // pigment while the nearest paints do much better. Gated to the true
+      // degenerate case so normal (and merely out-of-range) solves stay cheap.
+      {
+        const used = result.ratios.filter(v => v > 0.005).length;
+        if (result.deltaE > 12 && used <= 1) {
+          const rescued = rescuePoorSolve(paints, result.ratios, targetRgb, medium);
+          if (rescued && rescued.deltaE < result.deltaE - 1e-6) result = rescued;
+        }
+      }
       const conc = result.ratios.reduce((a, v) => a + v, 0);
       const sum = conc || 1;
       return {
@@ -602,7 +669,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = Mixing;
-    module.exports.__internal = { synthesizeReflectance, spectrumToRgb, nnls, buildProblem, linearSolve, refinePerceptual, exploreSubsets };
+    module.exports.__internal = { synthesizeReflectance, spectrumToRgb, nnls, buildProblem, linearSolve, refinePerceptual, exploreSubsets, rescuePoorSolve };
   } else {
     global.Mixing = Mixing;
   }

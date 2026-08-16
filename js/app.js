@@ -203,8 +203,9 @@
     if (!mq) return;
     const reticle = document.getElementById('panel-reticle');
     const readout = document.getElementById('panel-readout');
+    /* the sampler always starts minimised so the mix panel is the focus */
+    if (reticle) reticle.open = false;
     const apply = () => {
-      if (reticle) reticle.open = !mq.matches;
       if (readout) readout.open = !mq.matches;
     };
     apply();

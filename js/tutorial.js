@@ -37,9 +37,20 @@
     { target: '.magnifier', title: 'stepMagnifierTitle', body: 'stepMagnifierBody' },
     { target: '#readout-area', title: 'stepReadoutTitle', body: 'stepReadoutBody' },
     { target: '#panel-mix', title: 'stepMixTitle', body: 'stepMixBody' },
+    { target: '#mix-delta', title: 'stepDeltaTitle', body: 'stepDeltaBody' },
+    { target: '.mix-list', title: 'stepRecipeTitle', body: 'stepRecipeBody' },
+    { target: '#btn-lock-mix', title: 'stepLockTitle', body: 'stepLockBody' },
+    { target: '#btn-use-full', title: 'stepFullPaletteTitle', body: 'stepFullPaletteBody' },
+    { target: '#btn-resolve', title: 'stepResolveTitle', body: 'stepResolveBody' },
+    { target: '.mix-tryharder', title: 'stepTryHarderTitle', body: 'stepTryHarderBody' },
     { target: '#medium-readout', title: 'stepMediumTitle', body: 'stepMediumBody' },
+    { target: '.gamut-block', title: 'stepGamutTitle', body: 'stepGamutBody' },
     { target: '.mix-filters', title: 'stepFiltersTitle', body: 'stepFiltersBody' },
-    { target: '.mix-top', title: 'stepDuplicateTitle', body: 'stepDuplicateBody' },
+    { target: '#btn-dup-palette', title: 'stepDuplicateTitle', body: 'stepDuplicateBody' },
+    { target: '#btn-fit-palette', title: 'stepFitTitle', body: 'stepFitBody' },
+    { target: '#palette-add', title: 'stepAddPaintTitle', body: 'stepAddPaintBody',
+      enter() { global.CP.PaletteEditor.open(); },
+      leave() { global.CP.PaletteEditor.close(); } },
     { target: '.toolbar-slider', title: 'stepSoftenTitle', body: 'stepSoftenBody' },
     { target: '#history', title: 'stepHistoryTitle', body: 'stepHistoryBody' },
   ];
@@ -85,12 +96,15 @@
   }
 
   function show(i) {
+    /* leave any overlay/state the outgoing step opened before switching */
+    if (current >= 0 && current !== i && STEPS[current].leave) STEPS[current].leave();
     current = i;
     visible = true;
     root.hidden = false;
     const step = STEPS[i];
     const el = document.querySelector(step.target);
     if (!el) { hide(); return; }
+    if (step.enter) step.enter();
     // open collapsed ancestor panels so the spotlight points at real content
     expandAncestors(el);
     // scroll only if the target is actually off-screen, and only just enough
@@ -187,6 +201,8 @@
   function hide() {
     visible = false;
     root.hidden = true;
+    /* leave any overlay/state the current step opened */
+    if (current >= 0 && STEPS[current].leave) STEPS[current].leave();
     // put any panels we expanded for the tour back to how we found them
     if (savedOpen) {
       savedOpen.forEach((open, el) => { el.open = open; });

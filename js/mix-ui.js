@@ -400,24 +400,14 @@
   function applyResult(res, pool) {
     pool.indices.forEach((idx, j) => { ui.recipe[idx] = res.ratios[j]; });
     ui.result = res;
-    // Degenerate-recipe guard: when a target is far outside the palette's
-    // achievable range the solver can collapse to a single unrelated pigment
-    // (e.g. a purple "solved" with 100% Burnt Umber). Treat that as a hard
-    // miss so the UI warns instead of presenting a confident recipe.
-    if (res.deltaE > 12) {
-      const used = res.ratios.filter((v) => v > 0.005).length;
-      if (used <= 1) ui.result = Object.assign({}, res, { deltaE: 999 });
-    }
     render();
     renderGamut();
   }
 
-  /* effective ΔE for a solve result, after the degenerate-recipe guard */
+  /* effective ΔE for a solve result - the real measurement; out-of-range
+     targets show their true closest-match error and the UI warns via
+     difficulty() */
   function effectiveDeltaE(res) {
-    if (res.deltaE > 12) {
-      const used = res.ratios.filter((v) => v > 0.005).length;
-      if (used <= 1) return 999;
-    }
     return res.deltaE;
   }
 
@@ -480,10 +470,6 @@
     ui.fullRecipe = ui.allPaints.map(() => 0);
     pick.pool.indices.forEach((idx, j) => { ui.fullRecipe[idx] = pick.res.ratios[j]; });
     ui.result = Object.assign({}, pick.res);
-    if (pick.res.deltaE > 12) {
-      const used = pick.res.ratios.filter((v) => v > 0.005).length;
-      if (used <= 1) ui.result.deltaE = 999;
-    }
     render();
     renderGamut();
   }
