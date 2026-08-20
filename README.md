@@ -34,18 +34,22 @@ No image is ever uploaded: everything runs in your browser.
 
 ## Getting started
 
-Pixel Palette is a static site with no build step and no dependencies.
+Pixel Palette is a static site with no runtime dependencies. The editable
+sources live in `src/` and are bundled by `npm run build` into a single,
+self-contained `index.html` at the project root (CSS, favicon and all JS are
+inlined).
 
 ```sh
 git clone <your-repo-url>
 cd colour_picker
 ```
 
-Open `index.html` in a browser, or serve the folder locally:
+Build the single-file app, then open/serve the generated `index.html`:
 
 ```sh
-python3 -m http.server 8080
-# then visit http://localhost:8080
+npm run build     # writes index.html (zero build dependencies, Node only)
+npm run build:watch  # rebuild index.html whenever src/ changes
+python3 -m http.server 8080   # then visit http://localhost:8080
 ```
 
 Any static file server works — the app never makes network requests for its
@@ -54,26 +58,32 @@ own operation.
 ## Project layout
 
 ```
-index.html           App shell, SEO meta/JSON-LD, modals (info, privacy, disclaimer)
-css/app.css          All styles (dark/light theme via data-theme on <html>)
-js/app.js            Bootstrap: shared state, theme, toolbar, keyboard, pane divider
-js/i18n.js           String table (English default; locale-aware lookup)
-js/consent.js        Cookie / storage consent banner
-js/disclaimer.js     Blocking legal / safety notice gate
-js/color.js          Colour space conversion (HEX/RGB/HSL/CMYK)
-js/palettes.js       Paint palettes, media definitions, persistence/backfill
-js/mixing.js         Kubelka–Munk and glazing mix solvers
-js/mix-ui.js         Mix panel UI: filters, palette select, recipe list
-js/canvas.js         Canvas rendering, pan/zoom/fit
-js/reticle.js        Reticle sampling and magnifier
-js/readout.js        Colour readout panel
-js/history.js        Sample history strip
-js/palette-editor.js Edit-palette modal
-js/tutorial.js       Guided tour overlay
-js/image-loader.js   Local image loading (FileReader, drag & drop)
-js/demo-image.js     Built-in demo image
-assets/              favicon and Open Graph image
+index.html           Build output: the single-file bundle (do not edit by hand)
+src/index.html       App shell, SEO meta/JSON-LD, modals (info, privacy, disclaimer)
+src/css/app.css      All styles (dark/light theme via data-theme on <html>)
+src/js/app.js        Bootstrap: shared state, theme, toolbar, keyboard, pane divider
+src/js/i18n.js       String table (English default; locale-aware lookup)
+src/js/consent.js    Cookie / storage consent banner
+src/js/disclaimer.js Blocking legal / safety notice gate
+src/js/color.js      Colour space conversion (HEX/RGB/HSL/CMYK)
+src/js/palettes.js   Paint palettes, media definitions, persistence/backfill
+src/js/mixing.js     Kubelka–Munk and glazing mix solvers
+src/js/mix-ui.js     Mix panel UI: filters, palette select, recipe list
+src/js/canvas.js     Canvas rendering, pan/zoom/fit
+src/js/reticle.js    Reticle sampling and magnifier
+src/js/readout.js    Colour readout panel
+src/js/history.js    Sample history strip
+src/js/palette-editor.js Edit-palette modal
+src/js/tutorial.js   Guided tour overlay
+src/js/image-loader.js   Local image loading (FileReader, drag & drop)
+src/js/demo-image.js     Built-in demo image
+src/assets/          favicon and Open Graph image
+scripts/build.mjs    Bundles src/ into the single root index.html
 ```
+
+The build concatenates the JS sources in the order the shell loads them and
+inlines everything into one file, so the app's behaviour is identical to the
+multi-file version. Edit files under `src/`, then re-run `npm run build`.
 
 ## Legal notices
 

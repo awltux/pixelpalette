@@ -1,0 +1,12 @@
+{
+  "name": "pixelpalette",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pixel Palette - colour picker & paint mixer. Builds a single self-contained index.html from the sources in src/.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:watch": "node scripts/watch.mjs"
+  }
+}
