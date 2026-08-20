@@ -48,7 +48,7 @@ Build the single-file app, then open/serve the generated `index.html`:
 
 ```sh
 npm run build        # writes index.html (zero build dependencies, Node only)
-npm test             # rebuilds index.html and verifies the single-file bundle
+npm test             # runs the full unit + build test suite (85+ tests)
 npm run host         # serves the app locally at http://localhost:8080 (or npm run host -- 9000)
 npm run build:watch  # rebuild index.html whenever src/ changes
 ```
@@ -58,6 +58,27 @@ On Windows there are matching convenience scripts (`build.cmd`, `test.cmd`,
 
 Any static file server works — the app never makes network requests for its
 own operation.
+
+## Tests
+
+The test suite uses Node's built-in test runner (no dependencies). It loads
+the real browser sources (`src/js/*.js`) into a `vm` sandbox with mocked
+`window`/`document`/`localStorage`/canvas, so the actual code is exercised:
+
+- **color** — hex/rgb/hsl/cmyk conversions, linear/XYZ/Lab round-trips, ΔE.
+- **mixing** — Kubelka–Munk solver invariants, opaque vs glazing media, paint
+  caps, single-paint reproduction.
+- **gamut** — boundary computation, coverage, `pointInside`, `boundaryAt`.
+- **palettes** — built-in media, custom palettes, persistence, backfill.
+- **i18n** — string table lookups and variable interpolation.
+- **history** — per-palette history, locking, dedupe, persistence.
+- **fit-palette** — greedy palette fitting and coverage.
+- **gamut-filter** — `clipPixel` gamut clipping and palette signatures.
+- **smoke** — every source file loads in the documented order and registers
+  its globals.
+- **build** — rebuilds and verifies the single-file `index.html` output.
+
+Run any single file with e.g. `node --test --test-isolation=none test/mixing.test.mjs`.
 
 ## Project layout
 
@@ -83,9 +104,9 @@ src/js/image-loader.js   Local image loading (FileReader, drag & drop)
 src/js/demo-image.js     Built-in demo image
 src/assets/          favicon and Open Graph image
 scripts/build.mjs    Bundles src/ into the single root index.html
-scripts/test.mjs     Build test: rebuilds + verifies the single-file bundle
 scripts/host.mjs     Zero-dependency local static server for previewing the app
 scripts/watch.mjs    Rebuilds index.html on src/ changes
+test/                Unit + build test suite (node --test, zero dependencies)
 build.cmd test.cmd host.cmd   Windows wrappers for the npm scripts above
 ```
 
