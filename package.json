@@ -7,6 +7,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "test": "node scripts/test.mjs",
+    "host": "node scripts/host.mjs",
     "build:watch": "node scripts/watch.mjs"
   }
 }

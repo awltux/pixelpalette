@@ -47,10 +47,14 @@ cd colour_picker
 Build the single-file app, then open/serve the generated `index.html`:
 
 ```sh
-npm run build     # writes index.html (zero build dependencies, Node only)
+npm run build        # writes index.html (zero build dependencies, Node only)
+npm test             # rebuilds index.html and verifies the single-file bundle
+npm run host         # serves the app locally at http://localhost:8080 (or npm run host -- 9000)
 npm run build:watch  # rebuild index.html whenever src/ changes
-python3 -m http.server 8080   # then visit http://localhost:8080
 ```
+
+On Windows there are matching convenience scripts (`build.cmd`, `test.cmd`,
+`host.cmd`) that wrap the npm commands above.
 
 Any static file server works — the app never makes network requests for its
 own operation.
@@ -79,11 +83,16 @@ src/js/image-loader.js   Local image loading (FileReader, drag & drop)
 src/js/demo-image.js     Built-in demo image
 src/assets/          favicon and Open Graph image
 scripts/build.mjs    Bundles src/ into the single root index.html
+scripts/test.mjs     Build test: rebuilds + verifies the single-file bundle
+scripts/host.mjs     Zero-dependency local static server for previewing the app
+scripts/watch.mjs    Rebuilds index.html on src/ changes
+build.cmd test.cmd host.cmd   Windows wrappers for the npm scripts above
 ```
 
 The build concatenates the JS sources in the order the shell loads them and
 inlines everything into one file, so the app's behaviour is identical to the
-multi-file version. Edit files under `src/`, then re-run `npm run build`.
+multi-file version. Edit files under `src/`, then re-run `npm run build`
+(or `npm test`, which also validates the result).
 
 ## Legal notices
 

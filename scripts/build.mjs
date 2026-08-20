@@ -66,9 +66,18 @@ function build() {
   console.log(`Built ${dest} (${sizeKb} KB, ${scriptFiles.length} JS files inlined).`);
 }
 
-try {
-  build();
-} catch (err) {
-  console.error(err);
-  process.exit(1);
+export { build };
+
+// Run the build only when executed directly (`node scripts/build.mjs`),
+// not when imported by the test suite.
+const invokedDirectly =
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+  try {
+    build();
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
 }
