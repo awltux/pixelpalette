@@ -2,9 +2,9 @@
    Pixel Palette - build verification test
    Copyright (C) 2026 Awltux Limited. AGPL-3.0-or-later.
 
-   Rebuilds the single-file bundle and verifies it is a valid, self-contained
-   index.html: CSS and favicon inlined, JS bundled in one script, no external
-   references, and the bundle is syntactically valid.
+   Rebuilds the single-file bundle into dist/ and verifies it is a valid,
+   self-contained index.html: CSS and favicon inlined, JS bundled in one
+   script, no external references, and the bundle is syntactically valid.
 */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,11 +15,11 @@ import { build } from '../scripts/build.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-const OUT = resolve(ROOT, 'index.html');
+const OUT = resolve(ROOT, 'dist', 'index.html');
 
 const count = (s, needle) => s.split(needle).length - 1;
 
-test('build produces a non-empty index.html at the project root', () => {
+test('build produces a non-empty index.html in dist/', () => {
   build();
   assert.ok(statSync(OUT).size > 0);
 });

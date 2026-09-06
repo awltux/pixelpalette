@@ -5,7 +5,7 @@
    Licensed under the GNU Affero General Public License, version 3.
 
    Bundles the sources in src/ into a single, self-contained index.html
-   written to the project root. Zero runtime/build dependencies (Node only).
+   written to dist/. Zero runtime/build dependencies (Node only).
 
    What it does:
    - inlines css/app.css into a <style> tag
@@ -18,13 +18,14 @@
    DOM order preserves the app's runtime behaviour exactly.
 */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const SRC = resolve(ROOT, 'src');
+const DIST = resolve(ROOT, 'dist');
 
 // Exact strings used by the source HTML for each asset/script.
 const STYLE_TAG = '<link rel="stylesheet" href="css/app.css">';
@@ -59,14 +60,15 @@ function build() {
   if (bodyClose === -1) throw new Error('Could not find </body> to insert the bundle.');
   out = out.slice(0, bodyClose) + `\n<script>\n${js}\n</script>\n` + out.slice(bodyClose);
 
-  // --- write the single-file build to the project root ---
-  const dest = resolve(ROOT, 'index.html');
+  // --- write the single-file build to dist/ ---
+  mkdirSync(DIST, { recursive: true });
+  const dest = resolve(DIST, 'index.html');
   writeFileSync(dest, out, 'utf8');
   const sizeKb = (Buffer.byteLength(out, 'utf8') / 1024).toFixed(1);
   console.log(`Built ${dest} (${sizeKb} KB, ${scriptFiles.length} JS files inlined).`);
 }
 
-export { build };
+export { build, DIST };
 
 // Run the build only when executed directly (`node scripts/build.mjs`),
 // not when imported by the test suite.

@@ -1,5 +1,5 @@
 /*
-   Pixel Palette - watch build (rebuilds index.html on src changes).
+   Pixel Palette - watch build (rebuilds dist/index.html on src changes).
    Copyright (C) 2026 Awltux Limited. AGPL-3.0-or-later.
 */
 import { spawn } from 'node:child_process';

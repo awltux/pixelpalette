@@ -36,21 +36,20 @@ No image is ever uploaded: everything runs in your browser.
 
 Pixel Palette is a static site with no runtime dependencies. The editable
 sources live in `src/` and are bundled by `npm run build` into a single,
-self-contained `index.html` at the project root (CSS, favicon and all JS are
-inlined).
+self-contained `index.html` in `dist/` (CSS, favicon and all JS are inlined).
 
 ```sh
 git clone <your-repo-url>
 cd colour_picker
 ```
 
-Build the single-file app, then open/serve the generated `index.html`:
+Build the single-file app, then open/serve the generated `dist/index.html`:
 
 ```sh
-npm run build        # writes index.html (zero build dependencies, Node only)
-npm test             # runs the full unit + build test suite (85+ tests)
-npm run host         # serves the app locally at http://localhost:8080 (or npm run host -- 9000)
-npm run build:watch  # rebuild index.html whenever src/ changes
+npm run build        # writes dist/index.html (zero build dependencies, Node only)
+npm test             # runs the full unit + build test suite
+npm run host         # serves dist/ at http://localhost:8080 (or npm run host -- 9000)
+npm run build:watch  # rebuild dist/index.html whenever src/ changes
 ```
 
 On Windows there are matching convenience scripts (`build.cmd`, `test.cmd`,
@@ -76,14 +75,14 @@ the real browser sources (`src/js/*.js`) into a `vm` sandbox with mocked
 - **gamut-filter** — `clipPixel` gamut clipping and palette signatures.
 - **smoke** — every source file loads in the documented order and registers
   its globals.
-- **build** — rebuilds and verifies the single-file `index.html` output.
+- **build** — rebuilds and verifies the single-file `dist/index.html` output.
 
 Run any single file with e.g. `node --test --test-isolation=none test/mixing.test.mjs`.
 
 ## Project layout
 
 ```
-index.html           Build output: the single-file bundle (do not edit by hand)
+dist/index.html      Build output: the single-file bundle (do not edit by hand)
 src/index.html       App shell, SEO meta/JSON-LD, modals (info, privacy, disclaimer)
 src/css/app.css      All styles (dark/light theme via data-theme on <html>)
 src/js/app.js        Bootstrap: shared state, theme, toolbar, keyboard, pane divider
@@ -100,12 +99,13 @@ src/js/readout.js    Colour readout panel
 src/js/history.js    Sample history strip
 src/js/palette-editor.js Edit-palette modal
 src/js/tutorial.js   Guided tour overlay
+src/js/tracing.js    Projection/tracing view: image over camera, line art, surface mapping
 src/js/image-loader.js   Local image loading (FileReader, drag & drop)
 src/js/demo-image.js     Built-in demo image
 src/assets/          favicon and Open Graph image
-scripts/build.mjs    Bundles src/ into the single root index.html
-scripts/host.mjs     Zero-dependency local static server for previewing the app
-scripts/watch.mjs    Rebuilds index.html on src/ changes
+scripts/build.mjs    Bundles src/ into dist/index.html
+scripts/host.mjs     Zero-dependency static server that serves dist/
+scripts/watch.mjs    Rebuilds dist/index.html on src/ changes
 test/                Unit + build test suite (node --test, zero dependencies)
 build.cmd test.cmd host.cmd   Windows wrappers for the npm scripts above
 ```

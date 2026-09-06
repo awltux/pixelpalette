@@ -4,8 +4,9 @@
 
    Licensed under the GNU Affero General Public License, version 3.
 
-   Serves the project directory as a static site (the built index.html and
-   any other files) so you can preview the app locally. Zero dependencies.
+   Serves the built deliverables in dist/ as a static site (the generated
+   index.html and any other files) so you can preview the app locally.
+   Zero dependencies. Build first with `npm run build`.
 
    Usage:
      node scripts/host.mjs [port]
@@ -22,7 +23,7 @@ import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, '..');
+const ROOT = resolve(__dirname, '..', 'dist'); // serve the built deliverables
 const PORT = Number(process.env.PORT) || Number(process.argv[2]) || 8080;
 
 const TYPES = {
@@ -50,7 +51,7 @@ const server = createServer(async (req, res) => {
     const pathname = decodeURIComponent(url);
     let file = resolve(ROOT, '.' + normalize(pathname).replace(/\\/g, '/'));
 
-    // guard against path traversal outside the project root
+    // guard against path traversal outside the dist directory
     if (!file.startsWith(ROOT)) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
