@@ -873,6 +873,9 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   .hint { display: none; }
   .app-footer { position: static; margin-bottom: 48px; }
 
+  /* header: let the actions drop to their own row on smaller widths */
+  .app-header { flex-wrap: wrap; row-gap: 4px; padding: 8px 12px; }
+
   /* mobile order: sampler (default minimised) first, then paint mixing,
      colour, ad */
   .side-panel { display: flex; flex-direction: column; }
@@ -895,6 +898,19 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 }
 @media (min-width: 901px) {
   .result-bar { display: none !important; }
+}
+
+@media (max-width: 640px) {
+  .app-header { flex-direction: column; align-items: stretch; }
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .header-actions .btn {
+    flex: 0 1 auto;
+    padding: 7px 12px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -930,3 +946,264 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   .mix-item input[type="range"] { min-height: 30px; }
   .mix-item-pct { font-size: .8rem; }
 }
+
+/* ============================================================
+   Projection mode (tracing.js) + transient toast
+   ============================================================ */
+.project-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: #000;
+  display: block;
+  overflow: hidden;
+}
+.project-overlay[hidden] { display: none; }
+.project-overlay:fullscreen { background: #000; }
+.project-overlay:fullscreen::-webkit-backdrop { background: #000; }
+
+/* camera feed fills the screen; image is drawn on the canvas above it */
+.project-video {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+.project-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+.project-canvas:active { cursor: grabbing; }
+.project-canvas.locked { cursor: default; }
+
+/* ============================================================
+   Projection HUD — solid control bar pinned to the bottom.
+   Controls are grouped into logical clusters split by hairlines.
+   ============================================================ */
+.project-hud {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-soft);
+  border-top: 1px solid var(--border-strong);
+  color: var(--text);
+}
+.project-status {
+  flex: 1 1 100%;
+  font-size: .74rem; line-height: 1.3;
+  color: var(--warn);
+  min-height: 1em;
+}
+.project-status:empty { display: none; }
+
+/* vertical separators between groups */
+.hud-sep { width: 1px; height: 26px; background: var(--border-strong); flex: none; }
+
+/* each logical group */
+.hud-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.project-hud > .hud-group { margin: 0; }
+
+/* control row (sliders/checkboxes) */
+.project-ctrl {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: .74rem; color: var(--text); white-space: nowrap;
+}
+.project-ctrl-label { color: var(--text-dim); }
+.project-ctrl input[type="range"] {
+  width: 104px; height: 4px; margin: 0;
+  accent-color: var(--accent); cursor: pointer; flex: none;
+}
+.project-ctrl output {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: .68rem;
+  min-width: 34px; text-align: right;
+}
+.project-ctrl.is-locked { opacity: .4; }
+.project-ctrl input[type="range"]:disabled { cursor: not-allowed; }
+.project-grid-check { cursor: pointer; }
+.project-grid-check input {
+  width: 15px; height: 15px; margin: 0;
+  accent-color: var(--accent); cursor: pointer;
+}
+
+/* push Exit to the far right, chevron sits in the very corner next to it */
+.project-hud > .hud-exit { margin-left: auto; }
+
+/* collapse chevron in the dock's corner */
+.hud-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  margin-left: 6px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.hud-toggle:hover { background: var(--panel-2); color: var(--text); border-color: var(--text-dim); }
+.hud-toggle .hud-toggle-chevron { transition: transform .2s ease; }
+.hud-toggle.is-up .hud-toggle-chevron { transform: rotate(180deg); }
+
+/* minimised: dock collapses to a slim tab holding just the chevron */
+.project-hud.hud-min {
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+  gap: 0;
+}
+.project-hud.hud-min .hud-group,
+.project-hud.hud-min .hud-exit,
+.project-hud.hud-min .project-status,
+.project-hud.hud-min .hud-sep { display: none; }
+.project-hud.hud-min .hud-toggle { margin: 0 auto; }
+
+/* HUD buttons — consistent, compact */
+.project-hud .btn,
+.project-hud .btn-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: .74rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s, color .15s, transform .05s;
+}
+.project-hud .btn:hover,
+.project-hud .btn-lock:hover { border-color: var(--text-dim); }
+.project-hud .btn:active,
+.project-hud .btn-lock:active { transform: translateY(1px); }
+.project-hud .btn:focus-visible,
+.project-hud .btn-lock:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.project-hud .btn svg,
+.project-hud .btn-lock svg { flex: none; opacity: .9; }
+
+/* toggle "on" state: fill with accent colour */
+.project-hud .btn-line.is-on { background: var(--ok); border-color: var(--ok); color: #fff; }
+.project-hud .btn-line.is-on:hover { background: var(--ok); border-color: var(--ok); }
+.project-hud .btn-ar.is-on { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
+.project-hud .btn-feedzoom.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.project-hud #project-lock.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.project-hud .btn-ghost { background: transparent; border-color: var(--border-strong); }
+.project-hud .btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.project-hud .btn-primary:hover { background: color-mix(in srgb, var(--accent) 88%, #fff); border-color: var(--accent); }
+
+/* icon-only buttons (e.g. feed +/−) */
+.project-hud .hud-icon { width: 30px; padding: 0; justify-content: center; }
+
+/* feed zoom button cluster sits tighter together */
+.project-hud .project-feed-btns { display: inline-flex; align-items: center; gap: 4px; }
+.project-hud .project-feed-btns .btn { height: 26px; padding: 0 9px; font-size: .7rem; }
+.project-hud .project-feed-btns .hud-icon { width: 26px; padding: 0; }
+
+/* transient toast */
+.toast {
+  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+  z-index: 300;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 16px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-size: .84rem; line-height: 1.4;
+}
+.toast[hidden] { display: none; }
+
+/* ---------- line-drawing toggle & white tuning panel ---------- */
+.project-lines {
+  position: absolute; top: 12px; right: 12px; z-index: 6;
+  width: min(340px, calc(100% - 24px));
+  background: #ffffff; color: #1c2130;
+  border: 1px solid #cfd6e4; border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.project-lines[hidden] { display: none; }
+.project-lines-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.project-lines-title {
+  font-size: .8rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: #1c2130;
+}
+.project-lines-head .btn {
+  background: #f1f3f8; border-color: #cfd6e4; color: #1c2130;
+  padding: 4px 10px; font-size: .72rem;
+}
+.project-lines-stage {
+  border: 1px solid #dfe3ee; border-radius: 8px; overflow: hidden;
+  background: #fff;
+}
+.project-lines-canvas { display: block; width: 100%; height: auto; }
+.project-lines .project-ctrl { color: #1c2130; }
+.project-lines .project-ctrl-label { color: #4a5264; }
+.project-lines .project-ctrl output { color: #4a5264; }
+.project-lines input[type="range"] { accent-color: #111318; }
+.project-lines .project-lines-magenta { cursor: pointer; }
+.project-lines .project-lines-magenta input { margin: 0; accent-color: #ff00cc; }
+.project-lines .project-lines-magenta.is-on .project-ctrl-label {
+  color: #c400b0; font-weight: 600;
+}
+
+/* ---------- surface-map (simplistic AR) ---------- */
+.project-ar {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6;
+  width: min(720px, calc(100% - 24px));
+  background: rgba(10, 12, 18, .82);
+  backdrop-filter: blur(4px);
+  color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 8px 12px;
+  display: flex;
+}
+.project-ar[hidden] { display: none; }
+.project-ar-head {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap;
+}
+.project-ar-title {
+  font-size: .76rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: #cfd6e4; white-space: nowrap;
+}
+.project-ar-status {
+  flex: 1; min-width: 120px;
+  font-size: .76rem; font-weight: 600; color: var(--ok);
+}
+.project-ar .btn {
+  background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.25);
+  color: #e6eaf2; padding: 5px 11px; font-size: .72rem; white-space: nowrap;
+}
+.project-ar .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* magnetise toggle inside the map bar */
+.project-ar-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .72rem; color: #e6eaf2; cursor: pointer; white-space: nowrap;
+}
+.project-ar-toggle input { margin: 0; accent-color: var(--accent); }
+
+

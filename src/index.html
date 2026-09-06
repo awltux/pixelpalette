@@ -128,6 +128,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
     <button id="btn-theme" class="btn btn-ghost" type="button" data-i18n="btnTheme" aria-label="Toggle dark / light theme">Theme</button>
     <button id="btn-info" class="btn btn-ghost" type="button" data-i18n="btnInfo" aria-label="About Pixel Palette">Info</button>
     <button id="btn-tour" class="btn btn-ghost" type="button" data-i18n="btnTour" aria-label="Replay the guided tour" hidden>Tour</button>
+    <button id="btn-project" class="btn btn-ghost" type="button" data-i18n="btnProject" aria-label="Project the image over a live camera feed">Tracing</button>
   </div>
 </header>
 
@@ -398,6 +399,9 @@ Google Search Console verification: paste the meta tag here after adding the sit
   <button id="btn-privacy" class="btn btn-link" type="button" data-i18n="consentReopen">Privacy</button>
 </footer>
 
+<!-- Transient toast for non-modal messages (e.g. projection camera errors) -->
+<div class="toast" id="toast" role="status" hidden></div>
+
 <!-- Palette editor modal -->
 <div class="overlay" id="palette-overlay" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="palette-overlay-title">
@@ -566,6 +570,10 @@ Google Search Console verification: paste the meta tag here after adding the sit
         <p data-i18n="privacyImages">When you open an image, it is processed locally and never uploaded. No image data leaves your device at any point.</p>
       </section>
       <section>
+        <h3 data-i18n="privacyCameraTitle">Projection mode &amp; your camera</h3>
+        <p data-i18n="privacyCamera">Projection mode streams your camera inside your browser so you can trace a loaded image over your live view. The feed is shown only on your screen &mdash; it is never recorded, uploaded, stored or transmitted anywhere. The stream stops the moment you exit projection mode.</p>
+      </section>
+      <section>
         <h3 data-i18n="privacyLocalTitle">Local storage on your device</h3>
         <p data-i18n="privacyLocal">We use your browser&rsquo;s local storage to remember your preferences and saved work, including your theme choice, filter settings, the side-panel width, colour history, custom palettes, the legal-notice acknowledgement and the consent status below. This data stays on your device and can be removed by clearing your browser&rsquo;s site data.</p>
       </section>
@@ -613,6 +621,134 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <!-- Tutorial / app-driver overlay (built by js/tutorial.js) -->
 <div class="tutorial-root" id="tutorial-root" hidden></div>
 
+<!-- Projection overlay: full-screen live camera feed with the loaded image
+     superimposed at adjustable opacity, plus an image-locked proportion grid.
+     Built by js/tracing.js. -->
+<div class="project-overlay" id="project-overlay" hidden>
+  <video class="project-video" id="project-video" autoplay playsinline muted></video>
+  <canvas class="project-canvas" id="project-canvas" tabindex="0" aria-label="Projected image over camera"></canvas>
+
+  <div class="project-hud" id="project-hud" role="toolbar" aria-label="Projection controls">
+    <div class="project-status" id="project-status" role="status"></div>
+
+    <!-- mode: what is projected / mapped -->
+    <div class="hud-group hud-group-modes" role="group" aria-label="Projection mode">
+      <button id="project-line" class="btn-lock btn-line" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 14 9"/><path d="M15 20l5-5-3-3-5 5z"/></svg>
+        <span data-i18n="traceLine">Line drawing</span>
+      </button>
+      <button id="project-ar" class="btn-lock btn-ar" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+        <span data-i18n="arOn">Map to surface</span>
+      </button>
+    </div>
+
+    <span class="hud-sep" aria-hidden="true"></span>
+
+    <!-- image overlay: opacity + grid -->
+    <div class="hud-group hud-group-overlay" role="group" aria-label="Overlay">
+      <label class="project-ctrl project-alpha">
+        <span class="project-ctrl-label" data-i18n="traceAlpha">Overlay opacity</span>
+        <input type="range" id="project-alpha" min="0" max="100" step="1" value="60">
+        <output id="project-alpha-val">60%</output>
+      </label>
+      <label class="project-ctrl project-grid-check" data-i18n-attr="title:traceGrid">
+        <input type="checkbox" id="project-grid">
+        <span class="project-ctrl-label" data-i18n="traceGrid">Grid</span>
+      </label>
+      <label class="project-ctrl project-gridcell" id="project-gridcell-ctrl">
+        <span class="project-ctrl-label" data-i18n="traceGridSpacing">Grid spacing</span>
+        <input type="range" id="project-gridcell" min="8" max="400" step="1" value="64">
+        <output id="project-gridcell-val">64 px</output>
+      </label>
+    </div>
+
+    <span class="hud-sep" aria-hidden="true"></span>
+
+    <!-- view: fit / lock -->
+    <div class="hud-group hud-group-view" role="group" aria-label="View">
+      <button id="project-fit" class="btn btn-ghost" type="button" data-i18n="traceFit">Fit image</button>
+      <button id="project-lock" class="btn-lock" type="button" aria-pressed="false">
+        <svg class="lock-ico" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" fill="currentColor" stroke="none"/>
+          <path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>
+        </svg>
+        <span data-i18n="traceLockImage">Lock image</span>
+      </button>
+    </div>
+
+    <span class="hud-sep" aria-hidden="true"></span>
+
+    <!-- camera feed: source + feed zoom -->
+    <div class="hud-group hud-group-cam" role="group" aria-label="Camera feed">
+      <button id="project-cam" class="btn btn-ghost" type="button" data-i18n="traceCameraFront" title="Switch camera">Front camera</button>
+      <button id="project-feedzoom" class="btn-lock btn-feedzoom" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6M8 11h6"/></svg>
+        <span data-i18n="traceFeedZoom">Zoom feed</span>
+      </button>
+      <span class="project-feed-btns" role="group" aria-label="Feed zoom level">
+        <button id="project-feed-out" class="btn hud-icon" type="button" aria-label="Zoom feed out" title="Zoom feed out">−</button>
+        <button id="project-feed-reset" class="btn" type="button" data-i18n="traceFeedReset" title="Reset feed zoom">100%</button>
+        <button id="project-feed-in" class="btn hud-icon" type="button" aria-label="Zoom feed in" title="Zoom feed in">+</button>
+      </span>
+    </div>
+
+    <button id="project-exit" class="btn btn-primary hud-exit" type="button" data-i18n="traceExit">Exit projection</button>
+
+    <button id="project-hud-toggle" class="hud-toggle" type="button" aria-pressed="false" title="Collapse controls">
+      <svg class="hud-toggle-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
+
+  <!-- Line-drawing tuning panel: shows the result on a white background so
+       blur / effect adjustments are easy to judge. Visible while line art is on. -->
+  <div class="project-lines" id="project-lines" hidden>
+    <div class="project-lines-head">
+      <span class="project-lines-title" data-i18n="traceLineTitle">Line drawing</span>
+      <button id="project-lines-close" class="btn btn-ghost btn-sm" type="button" data-i18n="traceLineDone">Done</button>
+    </div>
+    <div class="project-lines-stage">
+      <canvas class="project-lines-canvas" id="project-lines-canvas" width="320" height="240" aria-label="Line drawing preview on white"></canvas>
+    </div>
+    <label class="project-ctrl">
+      <span class="project-ctrl-label" data-i18n="traceLineBlur">Blur</span>
+      <input type="range" id="project-line-blur" min="1" max="60" step="1" value="6">
+      <output id="project-line-blur-val">6</output>
+    </label>
+    <label class="project-ctrl">
+      <span class="project-ctrl-label" data-i18n="traceLineStrength">Line effect</span>
+      <input type="range" id="project-line-strength" min="0" max="100" step="1" value="55">
+      <output id="project-line-strength-val">55</output>
+    </label>
+    <label class="project-ctrl">
+      <span class="project-ctrl-label" data-i18n="traceLineKey">Remove white paper</span>
+      <input type="range" id="project-line-key" min="0" max="100" step="1" value="0">
+      <output id="project-line-key-val">0</output>
+    </label>
+    <label class="project-ctrl project-lines-magenta" id="project-line-magenta-row">
+      <input type="checkbox" id="project-line-magenta">
+      <span class="project-ctrl-label" data-i18n="traceLineMagenta">Show magenta backing</span>
+    </label>
+  </div>
+
+  <!-- Surface-map (simplistic AR) instruction bar: two fullscreen pinning
+       phases happen directly on the big canvas below (tap the photo, then
+       tap the matching points on the live surface). -->
+  <div class="project-ar" id="project-ar-panel" hidden>
+    <div class="project-ar-head">
+      <span class="project-ar-title" data-i18n="arTitle">Map to surface</span>
+      <span class="project-ar-status" id="project-ar-status" data-i18n="arStatus">Map surface</span>
+      <label class="project-ar-toggle project-ar-magnet">
+        <input type="checkbox" id="project-ar-magnet">
+        <span data-i18n="arMagnet">Snap to grid</span>
+      </label>
+      <button id="project-ar-corners" class="btn btn-ghost btn-sm" type="button" data-i18n="arUseCorners">Use 2/3 markers</button>
+      <button id="project-ar-next" class="btn btn-primary btn-sm" type="button" data-i18n="arNext" hidden>Next</button>
+      <button id="project-ar-close" class="btn btn-ghost btn-sm" type="button" data-i18n="arClear">Done</button>
+    </div>
+  </div>
+</div>
+
 <noscript><p style="padding:1rem">This app requires JavaScript.</p></noscript>
 
 <script src="js/i18n.js"></script>
@@ -633,6 +769,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <script src="js/palette-editor.js"></script>
 <script src="js/fit-palette.js"></script>
 <script src="js/tutorial.js"></script>
+<script src="js/tracing.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

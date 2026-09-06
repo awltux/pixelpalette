@@ -39,6 +39,7 @@ const ORDER = [
   'palette-editor.js',
   'fit-palette.js',
   'tutorial.js',
+  'tracing.js',
   'app.js',
 ];
 
@@ -63,6 +64,9 @@ test('expected globals are registered after load', () => {
   for (const mod of ['Canvas', 'Reticle', 'Readout', 'MixUI', 'Gamut', 'GamutFilter', 'History', 'PaletteEditor', 'FitPalette', 'Tutorial', 'Consent', 'Disclaimer', 'ImageLoader']) {
     assert.ok(w.CP[mod], `CP.${mod}`);
   }
+  assert.equal(typeof w.CP.Tracing, 'object', 'CP.Tracing');
+  assert.equal(typeof w.CP.Tracing.init, 'function');
+  assert.equal(typeof w.CP.Tracing.__internal.computeFit, 'function');
   // app.js sets up shared state (blurFilter is attached in boot(), which is
   // deferred because readyState stays 'loading' in this sandbox)
   assert.ok(w.CP.state, 'CP.state');

@@ -104,6 +104,7 @@
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       if (global.CP.Tutorial.isVisible()) return;
+      if (global.CP.Tracing && global.CP.Tracing.isActive()) return; // projection has focus
       let dx = 0, dy = 0;
       switch (e.key) {
         case 'ArrowLeft': dx = -1; break;
@@ -314,6 +315,7 @@
     global.CP.PaletteEditor.init();
     global.CP.FitPalette.init();
     global.CP.Tutorial.init();
+    global.CP.Tracing.init();
 
     initToolbar();
     initKeyboard();
