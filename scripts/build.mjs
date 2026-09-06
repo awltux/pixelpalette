@@ -12,13 +12,15 @@
    - inlines assets/favicon.svg as a base64 data URI
    - concatenates every js/*.js in the same order the source HTML loads
      them and inlines the result into a single <script> tag
+   - copies any other top-level static files from src/ (robots.txt,
+     sitemap.xml, etc.) into dist/ so they ship with the deliverable
 
    The JS sources are ordered plain-script IIFEs that attach themselves to
    window (CP / I18N / Color / Mixing / Gamut), so concatenating them in
    DOM order preserves the app's runtime behaviour exactly.
 */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,7 +67,19 @@ function build() {
   const dest = resolve(DIST, 'index.html');
   writeFileSync(dest, out, 'utf8');
   const sizeKb = (Buffer.byteLength(out, 'utf8') / 1024).toFixed(1);
-  console.log(`Built ${dest} (${sizeKb} KB, ${scriptFiles.length} JS files inlined).`);
+
+  // --- copy top-level static files (SEO: robots.txt, sitemap.xml, ...) ---
+  let copied = 0;
+  for (const name of readdirSync(SRC)) {
+    const from = resolve(SRC, name);
+    if (!statSync(from).isFile()) continue; // dirs (css/, js/, assets/) are handled above
+    if (name === 'index.html') continue;    // the bundle itself was written already
+    copyFileSync(from, resolve(DIST, name));
+    copied++;
+  }
+
+  const extra = copied ? ` + ${copied} static file(s)` : '';
+  console.log(`Built ${dest} (${sizeKb} KB, ${scriptFiles.length} JS files inlined${extra}).`);
 }
 
 export { build, DIST };

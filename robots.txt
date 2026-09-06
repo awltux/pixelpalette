@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://util.awltux.trade/pixelpalette/index.htmlsitemap.xml

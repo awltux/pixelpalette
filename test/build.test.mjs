@@ -15,13 +15,22 @@ import { build } from '../scripts/build.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-const OUT = resolve(ROOT, 'dist', 'index.html');
+const DIST = resolve(ROOT, 'dist');
+const OUT = resolve(DIST, 'index.html');
 
 const count = (s, needle) => s.split(needle).length - 1;
 
 test('build produces a non-empty index.html in dist/', () => {
   build();
   assert.ok(statSync(OUT).size > 0);
+});
+
+test('SEO files (robots.txt, sitemap.xml) are copied into dist/', () => {
+  for (const f of ['robots.txt', 'sitemap.xml']) {
+    const p = resolve(DIST, f);
+    assert.ok(statSync(p).isFile(), `${f} present in dist/`);
+    assert.ok(readFileSync(p, 'utf8').length > 0, `${f} non-empty`);
+  }
 });
 
 const html = readFileSync(OUT, 'utf8');

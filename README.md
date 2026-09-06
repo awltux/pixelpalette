@@ -82,8 +82,11 @@ Run any single file with e.g. `node --test --test-isolation=none test/mixing.tes
 ## Project layout
 
 ```
-dist/index.html      Build output: the single-file bundle (do not edit by hand)
+dist/                Build output: dist/index.html bundle + copied SEO static files
+dist/index.html      The single-file bundle (do not edit by hand)
 src/index.html       App shell, SEO meta/JSON-LD, modals (info, privacy, disclaimer)
+src/robots.txt       Search-engine crawl rules (copied to dist/ by the build)
+src/sitemap.xml      XML sitemap (copied to dist/ by the build)
 src/css/app.css      All styles (dark/light theme via data-theme on <html>)
 src/js/app.js        Bootstrap: shared state, theme, toolbar, keyboard, pane divider
 src/js/i18n.js       String table (English default; locale-aware lookup)
@@ -103,7 +106,7 @@ src/js/tracing.js    Projection/tracing view: image over camera, line art, surfa
 src/js/image-loader.js   Local image loading (FileReader, drag & drop)
 src/js/demo-image.js     Built-in demo image
 src/assets/          favicon and Open Graph image
-scripts/build.mjs    Bundles src/ into dist/index.html
+scripts/build.mjs    Bundles src/ into dist/ (inlines index.html, copies static files)
 scripts/host.mjs     Zero-dependency static server that serves dist/
 scripts/watch.mjs    Rebuilds dist/index.html on src/ changes
 test/                Unit + build test suite (node --test, zero dependencies)
