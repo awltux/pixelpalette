@@ -80,13 +80,14 @@
   let gridOn = false;
   let gridCell = 64; // image px (world px) per grid cell
   let locked = false;
-  // hide the projected reference image while tracing, so the artist can inspect
-  // the surface without the reference, while the proportion grid stays on. Only
-  // meaningful in the plain (flat) projection view.
-  let imgHidden = false;
-  // a short screen tap in the image area while Lock is on toggles imgHidden;
-  // a left/right swipe adjusts image opacity. Tracked separately from the
-  // pan/pinch state so a tap/swipe can't pan/zoom.
+  // peek the projected reference while tracing: a quick screen tap in the image
+  // area when Lock is on sets the overlay opacity to 0 (revealing the surface)
+  // and remembers the current opacity, so the next tap restores it. The grid is
+  // always drawn regardless of opacity. Only meaningful in the flat projection.
+  let restoreAlpha = 0.6; // opacity to bring back after a hide-peek
+  // a short screen tap in the image area while Lock is on peeks the reference
+  // (see peekHide above); a left/right swipe adjusts image opacity. Tracked
+  // separately from the pan/pinch state so a tap/swipe can't pan/zoom.
   // {id, x0, y0, t0, moved, mode: 'none'|'swipe', baseAlpha}
   let hideTap = null;
   // display the projected photo (and the pinning reference photo) in
@@ -525,11 +526,13 @@
       return;
     }
 
-    // line mode swaps the projected reference for a generated line drawing
+    // line mode swaps the projected reference for a generated line drawing.
+    // When the overlay opacity is 0 the reference (and any magenta backing) is
+    // skipped entirely so the surface shows through; the grid is drawn after.
     const src = (lineOn && lineCanvas) ? lineCanvas : img.canvas;
     const useLine = lineOn && lineCanvas;
 
-    if (!imgHidden) {
+    if (alpha > 0) {
       ctx.save();
       // When the magenta backing is on, hide the camera behind the line art so
       // the keyed-to-transparent paper reads magenta and the black strokes are
@@ -856,13 +859,13 @@
   }
 
   /* ---------- HUD updates ---------- */
-  function setAlpha(v) {
+  function setAlpha(v, persist) {
     alpha = Math.max(0, Math.min(1, v));
     if (els) {
       els.alpha.value = String(Math.round(alpha * 100));
       if (els.alphaVal) els.alphaVal.textContent = Math.round(alpha * 100) + '%';
     }
-    savePrefs();
+    if (persist !== false) savePrefs();
     requestRender();
   }
 
@@ -906,16 +909,19 @@
     if (els && els.canvas) els.canvas.classList.toggle('locked', locked);
   }
 
-  /* Hide / expose the projected reference while tracing. Toggled by a quick
-     screen tap inside the image area when Lock is on (screen presses are frozen
-     there, so we repurpose a tap to hide the reference and reveal the surface). */
-  function setImgHidden(v) {
-    imgHidden = !!v;
-    requestRender();
-  }
-
-  function toggleImgHidden() {
-    setImgHidden(!imgHidden);
+  /* Peek/hide the projected reference via opacity while tracing. A quick screen
+     tap inside the image area when Lock is on hides the reference by setting its
+     opacity to 0 (so the surface shows through); the grid stays on. Remember the
+     current opacity so the same tap can restore it. The user can also adjust the
+     opacity slider / swipe to restore gradually. */
+  function peekHide() {
+    if (alpha > 0) {
+      restoreAlpha = alpha;      // remember what was showing
+      setAlpha(0);               // hide (persists to prefs)
+    } else {
+      // already fully transparent: restore the last shown opacity (or default)
+      setAlpha(restoreAlpha > 0 ? restoreAlpha : 0.6);
+    }
   }
 
   /* is a css-space point over the projected image (in the flat projection view)? */
@@ -2227,8 +2233,9 @@
     }
     if (locked && arMode === 'off') {
       // While locked, pan/zoom is frozen; a quick tap on the projected image
-      // toggles hide/expose so the artist can check the surface without the
-      // reference. Track only taps (little movement / short press).
+      // peeks the reference away (opacity 0, grid stays) so the artist can
+      // check the surface, and a second tap restores it. Track only taps
+      // (little movement / short press).
       const rect = els.canvas.getBoundingClientRect();
       const cssX = e.clientX - rect.left, cssY = e.clientY - rect.top;
       if (pointInImage(cssX, cssY)) {
@@ -2322,11 +2329,11 @@
     if (hideTap && e.pointerId === hideTap.id) {
       const tap = hideTap;
       hideTap = null;
-      // a clean tap (little travel, short press) toggles hide/expose
+      // a clean tap (little travel, short press) peeks the reference away
       const dx = e.clientX - tap.x0, dy = e.clientY - tap.y0;
       if (!cancelled && !tap.moved && Date.now() - tap.t0 <= HIDE_TAP_MS &&
         Math.hypot(dx, dy) <= HIDE_TAP_SLOP) {
-        toggleImgHidden();
+        peekHide();
         requestRender();
         return;
       }
@@ -2379,8 +2386,10 @@
     }
     if (els.lineMagenta) els.lineMagenta.checked = lineMagenta;
     setLocked(false);
-    imgHidden = false; // start each session with the reference image shown
     hideTap = null;
+    // start each session with the reference shown: if the last session ended
+    // with a hide-peek (opacity 0), bring back the opacity we remembered
+    if (alpha <= 0) setAlpha(restoreAlpha > 0 ? restoreAlpha : 0.6, false);
     // start each session on the normal photo; line art & AR are opt-in
     lineOn = false;
     linePanelHidden = false;
