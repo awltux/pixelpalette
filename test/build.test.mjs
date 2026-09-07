@@ -59,6 +59,13 @@ test('app shell/DOM is intact', () => {
   assert.ok(html.includes('<canvas id="canvas"'));
 });
 
+test('Info dialog shows the git build hash, not the placeholder', () => {
+  const m = html.match(/<p class="info-build">build=<span id="info-build-hash">([^<]+)<\/span><\/p>/);
+  assert.ok(m, 'Info build line is present in the built HTML');
+  assert.ok(m[1] && /^[0-9a-f]{7}$/i.test(m[1]), `hash stamped (got "${m[1]}")`);
+  assert.ok(!html.includes('__GIT_SHA__'), 'no placeholder remains in the bundle');
+});
+
 test('the inlined JS bundle is syntactically valid', () => {
   const start = html.lastIndexOf('\n<script>\n') + '\n<script>\n'.length;
   const end = html.lastIndexOf('</script>');

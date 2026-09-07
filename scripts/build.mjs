@@ -20,7 +20,7 @@
    DOM order preserves the app's runtime behaviour exactly.
 */
 
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,6 +34,50 @@ const STYLE_TAG = '<link rel="stylesheet" href="css/app.css">';
 const FAVICON_ATTR = 'href="assets/favicon.svg"';
 const SCRIPT_RE = /<script src="js\/([^"]+)"><\/script>/g;
 
+// Short git commit hash shown in the Info dialog ("build=<hash>"). Read
+// straight from .git (HEAD -> ref -> object id, with a packed-refs fallback)
+// so the build needs no git binary and works in a bare checkout. Falls back
+// to "dev" when there is no .git (e.g. a source tarball).
+const BUILD_HASH_PLACEHOLDER = '__GIT_SHA__';
+function gitDirPath() {
+  const gitPath = resolve(ROOT, '.git');
+  if (!existsSync(gitPath)) return null;
+  if (statSync(gitPath).isDirectory()) return gitPath;
+  // worktree / submodule: .git is a file containing "gitdir: <path>"
+  const m = readFileSync(gitPath, 'utf8').trim().match(/^gitdir:\s*(.+)$/);
+  return m ? resolve(ROOT, m[1].trim()) : null;
+}
+function shortGitHash() {
+  try {
+    const gitDir = gitDirPath();
+    if (!gitDir) return 'dev';
+    const head = readFileSync(resolve(gitDir, 'HEAD'), 'utf8').trim();
+    const ref = head.match(/^ref:\s*(.+)$/);
+    let sha;
+    if (ref) {
+      const refName = ref[1].trim();
+      const refFile = resolve(gitDir, refName);
+      if (existsSync(refFile)) {
+        sha = readFileSync(refFile, 'utf8').trim();
+      } else {
+        // ref not loose (packed) -> look it up in packed-refs
+        const packed = resolve(gitDir, 'packed-refs');
+        if (existsSync(packed)) {
+          const line = readFileSync(packed, 'utf8')
+            .split('\n')
+            .find((l) => l.trim().endsWith(' ' + refName));
+          if (line) sha = line.trim().split(' ')[0];
+        }
+      }
+    } else if (/^[0-9a-f]{40}$/i.test(head)) {
+      sha = head; // detached HEAD holds the full id directly
+    }
+    return sha ? sha.slice(0, 7) : 'dev';
+  } catch {
+    return 'dev';
+  }
+}
+
 function build() {
   const html = readFileSync(resolve(SRC, 'index.html'), 'utf8');
 
@@ -41,6 +85,10 @@ function build() {
   const css = readFileSync(resolve(SRC, 'css/app.css'), 'utf8');
   if (!html.includes(STYLE_TAG)) throw new Error('Could not find the CSS link tag to inline.');
   let out = html.replace(STYLE_TAG, `<style>\n${css}\n</style>`);
+
+  // --- stamp the Info dialog with the short git hash of this build ---
+  const hash = shortGitHash();
+  out = out.split(BUILD_HASH_PLACEHOLDER).join(hash);
 
   // --- inline favicon ---
   const favicon = readFileSync(resolve(SRC, 'assets/favicon.svg'), 'utf8');

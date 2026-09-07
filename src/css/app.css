@@ -631,6 +631,11 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .info-content details + details { margin-top: 8px; }
 .info-content summary { cursor: pointer; font-weight: 600; }
 .info-content details p { margin-top: 6px; }
+.info-build {
+  margin: 2px 0 0; text-align: right;
+  font-family: var(--mono); font-size: .62rem; color: var(--text-dim);
+  user-select: text;
+}
 
 .palette-edit { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
 .palette-name-row { display: grid; gap: 5px; margin-bottom: 12px; }
