@@ -72,8 +72,8 @@
   // screen "tap"/swipe gestures on the projected image while Lock is on
   const HIDE_TAP_SLOP = 12;      // max css px of finger travel to count as a tap
   const HIDE_TAP_MS = 400;       // max tap duration (ms)
-  const SWIPE_PX = 40;           // vertical travel that starts an opacity swipe
-  const SWIPE_ALPHA_PER_PX = 1 / 350; // opacity change per css px of swipe
+  const SWIPE_PX = 40;           // vertical travel that counts as an opacity swipe
+  const SWIPE_ALPHA_STEP = 0.1;  // opacity change applied per completed swipe gesture
 
   // adjustable state, persisted
   let alpha = 0.6;   // 0..1
@@ -86,10 +86,10 @@
   // always drawn regardless of opacity. Only meaningful in the flat projection.
   let restoreAlpha = 0.6; // opacity to bring back after a hide-peek
   // a short screen tap in the image area while Lock is on peeks the reference
-  // (see peekHide above); an up/down swipe adjusts image opacity (up = more
-  // opaque, down = more transparent). Tracked separately from the pan/pinch
-  // state so a tap/swipe can't pan/zoom.
-  // {id, x0, y0, t0, moved, mode: 'none'|'swipe', baseAlpha}
+  // (see peekHide above); an up/down swipe steps image opacity by one fixed
+  // increment per completed gesture (up = more opaque, down = more transparent).
+  // Tracked separately from the pan/pinch state so a tap/swipe can't pan/zoom.
+  // {id, x0, y0, t0, moved, mode: 'none'|'swipe'}
   let hideTap = null;
   // display the projected photo (and the pinning reference photo) in
   // greyscale, so the traced tonal values are easier to read. Display-only:
@@ -2225,14 +2225,17 @@
 
   /* While locked, a press on the projection surface (anywhere off the HUD)
      starts a peek/swipe: a quick tap peeks the reference away, a vertical
-     swipe adjusts opacity. The gesture then tracks across the whole window
-     (see onLockedMove/onLockedEnd) so a swipe runs on past the image edge. */
+     swipe applies ONE discrete opacity step (up = more opaque, down = more
+     transparent). The drag itself does not continuously scrub opacity; each
+     completed press-drag-release is a single +/-, regardless of how far you
+     drag. The gesture tracks across the whole window (see onLockedMove /
+     onLockedEnd) so a swipe runs on past the image edge. */
   function startLockedGesture(e) {
     if (!locked || arMode !== 'off') return false;
     if (overHud(e)) return false;
     e.preventDefault();
     els.canvas.setPointerCapture(e.pointerId);
-    hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none', baseAlpha: alpha };
+    hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none' };
     return true;
   }
 
@@ -2241,19 +2244,15 @@
     const dx = e.clientX - hideTap.x0;
     const dy = e.clientY - hideTap.y0;
     const dist = Math.hypot(dx, dy);
-    // lock onto a swipe only if it is clearly vertical and far enough
+    // recognise a swipe only when the drag is clearly vertical and far enough.
+    // We don't scrub opacity live here - the step is applied once, on release.
     if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP &&
       Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) >= SWIPE_PX) {
       hideTap.mode = 'swipe';
-      hideTap.baseAlpha = alpha;
-    }
-    if (hideTap.mode === 'swipe') {
-      // up = increase, down = decrease (y grows downward)
-      setAlpha(hideTap.baseAlpha - dy * SWIPE_ALPHA_PER_PX);
     } else if (dist > HIDE_TAP_SLOP) {
       hideTap.moved = true; // a non-swipe drag is neither tap nor swipe
     }
-    e.preventDefault();
+    e.preventDefault(); // keep a vertical drag from scrolling/zooming the page
   }
 
   function onLockedEnd(e) {
@@ -2261,12 +2260,18 @@
     const cancelled = e.type === 'pointercancel';
     const tap = hideTap;
     hideTap = null;
-    // a clean tap (little travel, short press) peeks the reference away
+    if (cancelled) return;
     const dx = e.clientX - tap.x0, dy = e.clientY - tap.y0;
-    if (!cancelled && !tap.moved && Date.now() - tap.t0 <= HIDE_TAP_MS &&
+    // a quick, nearly motionless press peeks the reference away / restores it
+    if (tap.mode !== 'swipe' && !tap.moved && Date.now() - tap.t0 <= HIDE_TAP_MS &&
       Math.hypot(dx, dy) <= HIDE_TAP_SLOP) {
       peekHide();
-      requestRender();
+      return;
+    }
+    // one completed vertical swipe = one opacity step in its direction
+    if (tap.mode === 'swipe') {
+      if (dy <= -SWIPE_PX / 2) setAlpha(alpha + SWIPE_ALPHA_STEP);   // swiped up
+      else if (dy >= SWIPE_PX / 2) setAlpha(alpha - SWIPE_ALPHA_STEP); // swiped down
     }
   }
 
