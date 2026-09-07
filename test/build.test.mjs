@@ -35,9 +35,13 @@ test('SEO files (robots.txt, sitemap.xml) are copied into dist/', () => {
 
 const html = readFileSync(OUT, 'utf8');
 
-test('CSS is inlined into one <style>, no external stylesheet', () => {
-  assert.equal(count(html, '<style>'), 1);
+test('CSS is inlined (no external stylesheet) with only the app + no-JS guard <style>', () => {
+  // the app stylesheet is inlined, plus a tiny <noscript><style> guard that
+  // hides the boot splash when JavaScript is disabled
   assert.ok(!html.includes('href="css/app.css"'));
+  assert.equal(count(html, '<style>'), 2);
+  assert.ok(html.includes('.boot-overlay'));
+  assert.ok(html.includes('<noscript><style>#boot-overlay'));
 });
 
 test('favicon is inlined as a data URI, no external assets', () => {

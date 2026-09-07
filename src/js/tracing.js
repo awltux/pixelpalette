@@ -48,21 +48,52 @@
   // The feed zoom is applied as a CSS transform on the <video> element, so it
   // affects only the camera (the drawn overlay intentionally does not zoom).
   // screen = t + s * p  where p is a video/content point, s the scale, t the pan.
+  // When the camera exposes a real `zoom` track constraint (sensor/device zoom)
+  // we use that first — it crops the sensor for genuine magnification — and only
+  // fall back to the CSS upscale for the part the sensor cannot reach. `feedS`
+  // stays the total magnification the user asks for (>=1); the CSS scale applied
+  // to the element is `feedS / feedSensorZoom` (>=1). Without sensor zoom the
+  // applied scale equals feedS, so behaviour is unchanged.
   let feedOn = false;        // feed-zoom engaged
-  let feedS = 1;             // scale (>=1)
+  let feedS = 1;             // total requested magnification (>=1)
+  let feedCss = 1;           // CSS scale actually applied to the <video>
   let feedTx = 0, feedTy = 0; // pan (css px)
+  let feedSensorCap = null;  // {min,max,step} of the live track's zoom, or null
+  let feedSensorZoom = 1;    // currently requested sensor-zoom value (>=1)
+  let feedSensorQueued = 0;  // timeout id for coalesced applyConstraints
+  let feedSensorPending = 0; // latest sensor value waiting to be applied
+  let feedSensorImageCapture = null; // keep an ImageCapture alive for zoom caps
   const FEED_MAX = 10;
   // how coarse/fine each zoom step is. Multiplicative per click; 1.10 =
   // ~10% per click (finer than the previous 1.35). Wheel uses a weaker
   // exponential so a scroll notch moves less.
   const FEED_BTN_STEP = 1.10;
   const FEED_WHEEL_K = 0.0009; // scroll sensitivity (smaller = finer)
+  // screen "tap"/swipe gestures on the projected image while Lock is on
+  const HIDE_TAP_SLOP = 12;      // max css px of finger travel to count as a tap
+  const HIDE_TAP_MS = 400;       // max tap duration (ms)
+  const SWIPE_PX = 40;           // horizontal travel that starts an opacity swipe
+  const SWIPE_ALPHA_PER_PX = 1 / 350; // opacity change per css px of swipe
 
   // adjustable state, persisted
   let alpha = 0.6;   // 0..1
   let gridOn = false;
   let gridCell = 64; // image px (world px) per grid cell
   let locked = false;
+  // hide the projected reference image while tracing, so the artist can inspect
+  // the surface without the reference, while the proportion grid stays on. Only
+  // meaningful in the plain (flat) projection view.
+  let imgHidden = false;
+  // a short screen tap in the image area while Lock is on toggles imgHidden;
+  // a left/right swipe adjusts image opacity. Tracked separately from the
+  // pan/pinch state so a tap/swipe can't pan/zoom.
+  // {id, x0, y0, t0, moved, mode: 'none'|'swipe', baseAlpha}
+  let hideTap = null;
+  // display the projected photo (and the pinning reference photo) in
+  // greyscale, so the traced tonal values are easier to read. Display-only:
+  // the main colour canvas and the generated line/sketch drawing are
+  // unaffected.
+  let greyOn = false;
   // HUD minimise: hides the lower control bar so it doesn't obscure the feed.
   // While pinning the image on small screens it is auto-minimised.
   let hudMin = false;       // user asked to minimise
@@ -100,6 +131,15 @@
   let arLoupe = { active: false, x: 0, y: 0 };   // css coords of its centre
   let arDragPtr = null;     // pointer id currently dragging the loupe
   let arLoopId = 0;         // rAF id for live-surface loupe refresh
+  // fine pin adjustment once a map is active ('on'): reveal the four surface
+  // pins as draggable handles so the user can make tiny final corrections to
+  // the alignment (the pins only resolve to ~1px during setup).
+  let arEdit = false;        // pin-adjust mode active
+  let arFine = true;         // scale pointer movement by 1/AR_FINE for sub-px
+  let arDragIdx = -1;        // surface pin index being dragged
+  let arEditPtr = null;      // pointer id dragging a pin in adjust mode
+  let arDragBase = null;     // {px,py} pointer start css pos while dragging
+  let arDragPin0 = null;     // {x,y} pin position at drag start
 
   let els = null;      // DOM element handles
   let canvasCtx = null;
@@ -120,6 +160,7 @@
         if (typeof p.alpha === 'number') alpha = p.alpha;
         if (typeof p.grid === 'boolean') gridOn = p.grid;
         if (typeof p.gridCell === 'number') gridCell = p.gridCell;
+        if (typeof p.grey === 'boolean') greyOn = p.grey;
         if (typeof p.line === 'boolean') lineOn = p.line;
         if (typeof p.lineBlur === 'number') lineBlur = p.lineBlur;
         if (typeof p.lineStrength === 'number') lineStrength = p.lineStrength;
@@ -129,7 +170,11 @@
         if (typeof p.feedS === 'number' && p.feedS >= 1) feedS = p.feedS;
         if (typeof p.feedTx === 'number') feedTx = p.feedTx;
         if (typeof p.feedTy === 'number') feedTy = p.feedTy;
+        // until a live track's zoom capability is probed, all magnification is CSS
+        feedCss = feedS;
+        feedSensorZoom = 1;
         if (typeof p.arMagnet === 'boolean') arMagnet = p.arMagnet;
+        if (typeof p.arFine === 'boolean') arFine = p.arFine;
       }
     } catch (e) { /* ignore */ }
     try {
@@ -140,7 +185,7 @@
 
   function savePrefs() {
     try {
-      localStorage.setItem(PREF_KEY, JSON.stringify({ alpha, grid: gridOn, gridCell, line: lineOn, lineBlur, lineStrength, lineKey, lineMagenta, feedOn, feedS, feedTx, feedTy, arMagnet }));
+      localStorage.setItem(PREF_KEY, JSON.stringify({ alpha, grid: gridOn, gridCell, grey: greyOn, line: lineOn, lineBlur, lineStrength, lineKey, lineMagenta, feedOn, feedS, feedTx, feedTy, arMagnet, arFine }));
       localStorage.setItem(CAM_KEY, facing);
     } catch (e) { /* ignore */ }
   }
@@ -457,7 +502,12 @@
     // flat pan/zoom reference.
     if (arMode === 'on' && arWarpCanvas) {
       drawArWarp();
-      drawArDstMarkers();
+      if (arEdit) {
+        drawArEditHandles();
+        drawArAdjustLoupe();
+      } else {
+        drawArDstMarkers();
+      }
       return;
     }
     if (arMode === 'setup') {
@@ -479,23 +529,28 @@
     const src = (lineOn && lineCanvas) ? lineCanvas : img.canvas;
     const useLine = lineOn && lineCanvas;
 
-    ctx.save();
-    // When the magenta backing is on, hide the camera behind the line art so
-    // the keyed-to-transparent paper reads magenta and the black strokes are
-    // easy to judge against it. Drawn at full opacity as a diagnostic.
-    const alphaToUse = (useLine && lineMagenta) ? 1 : alpha;
-    if (useLine && lineMagenta) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#ff00ff';
-      ctx.fillRect(0, 0, cssW, cssH);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (!imgHidden) {
+      ctx.save();
+      // When the magenta backing is on, hide the camera behind the line art so
+      // the keyed-to-transparent paper reads magenta and the black strokes are
+      // easy to judge against it. Drawn at full opacity as a diagnostic.
+      const alphaToUse = (useLine && lineMagenta) ? 1 : alpha;
+      if (useLine && lineMagenta) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = '#ff00ff';
+        ctx.fillRect(0, 0, cssW, cssH);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      // greyscale the projected photo (never the line/sketch drawing) so tonal
+      // values are easier to judge; display-only, the main canvas is untouched.
+      if (!useLine && greyOn) ctx.filter = 'grayscale(1)';
+      ctx.globalAlpha = alphaToUse;
+      ctx.translate(cssW / 2, cssH / 2);
+      ctx.scale(view.scale, view.scale);
+      ctx.translate(-view.cx, -view.cy);
+      ctx.drawImage(src, 0, 0);
+      ctx.restore();
     }
-    ctx.globalAlpha = alphaToUse;
-    ctx.translate(cssW / 2, cssH / 2);
-    ctx.scale(view.scale, view.scale);
-    ctx.translate(-view.cx, -view.cy);
-    ctx.drawImage(src, 0, 0);
-    ctx.restore();
 
     if (gridOn) drawGrid(img.width, img.height);
   }
@@ -567,36 +622,124 @@
      The feed is magnified by a CSS transform on the <video>: screen = t + s*p.
      transform-origin 0 0 keeps the math linear. Only the camera moves; the
      drawn overlay does not (accepted drift). Feed gestures are frozen by the
-     Lock button along with the overlay. */
+     Lock button along with the overlay.
+
+     When the active camera track reports a real `zoom` capability we drive that
+     (sensor / device zoom) as far as it can go and only CSS-upscale the
+     remainder, so close-up detail comes from the sensor rather than pure
+     re-sampling. `feedS` is the total requested magnification (>=1). The split
+     is pure/testable and degrades to CSS-only when the track has no zoom. */
+
+  // ---- split the total magnification into sensor zoom + CSS scale ----
+  // cap = track capability {min,max,step} or null. sensor carries as much of the
+  // magnification as the device allows (>=1), the rest is CSS upscale (>=1) so
+  // total == sensor * css. If no usable zoom the sensor part stays 1.
+  function splitFeedZoom(total, cap) {
+    const t = Math.max(1, total);
+    if (!cap || !(cap.max > 1)) return { sensor: 1, css: t };
+    const smax = Math.max(1, cap.max);
+    const smin = Math.max(1, cap.min || 1);
+    const sensor = Math.max(smin, Math.min(smax, t));
+    const css = Math.max(1, t / sensor);
+    return { sensor, css };
+  }
+
+  // recompute the CSS scale actually applied to the <video> and (re)issue the
+  // sensor zoom constraint, coalesced so rapid zoom gestures don't spam it.
+  // Callers must call applyFeedTransform() after layout is ready.
+  function syncFeedZoom() {
+    const split = splitFeedZoom(feedS, feedSensorCap);
+    feedCss = split.css;
+    feedSensorZoom = split.sensor;
+    if (feedSensorCap) queueSensorZoom(feedSensorZoom);
+  }
+
+  function queueSensorZoom(value) {
+    if (!stream) return;
+    const track = stream.getVideoTracks && stream.getVideoTracks()[0];
+    if (!track || !track.applyConstraints) return;
+    // round to the track's step when given, staying within min/max
+    let v = value;
+    if (feedSensorCap) {
+      const min = Math.max(1, feedSensorCap.min || 1);
+      const max = Math.max(min, feedSensorCap.max || min);
+      const step = feedSensorCap.step && feedSensorCap.step > 0 ? feedSensorCap.step : 0;
+      if (step) v = min + Math.round((v - min) / step) * step;
+      v = Math.max(min, Math.min(max, v));
+    }
+    feedSensorPending = v;
+    if (feedSensorQueued) return;
+    feedSensorQueued = setTimeout(() => {
+      feedSensorQueued = 0;
+      const vv = feedSensorPending;
+      if (!stream) return;
+      const tr = stream.getVideoTracks && stream.getVideoTracks()[0];
+      if (!tr || !tr.applyConstraints) return;
+      try {
+        tr.applyConstraints({ advanced: [{ zoom: vv }] }).catch(() => {});
+      } catch (e) { /* unsupported at apply time */ }
+    }, 40);
+  }
+
+  /* probe the live camera for a real zoom constraint. Some browsers only expose
+     `zoom` after an ImageCapture is constructed on the track, so we try that. */
+  function detectSensorZoom() {
+    feedSensorCap = null;
+    feedSensorZoom = 1;
+    feedCss = feedS;
+    if (!stream) return;
+    const track = stream.getVideoTracks && stream.getVideoTracks()[0];
+    if (!track) return;
+    // keep a reference alive; required by some engines before zoom appears
+    try {
+      if (global.ImageCapture && !feedSensorImageCapture) {
+        feedSensorImageCapture = new global.ImageCapture(track);
+      }
+    } catch (e) { /* no ImageCapture */ }
+    let caps = null;
+    try { caps = track.getCapabilities && track.getCapabilities(); } catch (e) { /* ignore */ }
+    const z = caps && caps.zoom;
+    if (z && typeof z.max === 'number' && z.max > 1) {
+      feedSensorCap = {
+        min: typeof z.min === 'number' ? z.min : 1,
+        max: z.max,
+        step: typeof z.step === 'number' ? z.step : 0,
+      };
+    }
+    syncFeedZoom();
+  }
+
   function applyFeedTransform() {
     if (!els || !els.video) return;
     // The feed zoom/pan is a persistent state and is applied whether or not the
     // "Zoom feed" button is on. That button only chooses which layer (feed or
     // image) the pan/zoom gestures control; it does not reset the feed view.
     feedS = Math.max(1, Math.min(FEED_MAX, feedS));
+    feedCss = Math.max(1, feedCss || feedS);
     clampFeedPan();
     els.video.style.transformOrigin = '0 0';
-    els.video.style.transform = `translate(${feedTx}px, ${feedTy}px) scale(${feedS})`;
+    els.video.style.transform = `translate(${feedTx}px, ${feedTy}px) scale(${feedCss})`;
   }
 
   /* keep the pan from flinging the feed so far that it leaves the viewport */
   function clampFeedPan() {
     const margin = 0.85; // fraction of viewport the feed may slide
-    const limX = cssW * (feedS - 1) * 0.5 + cssW * margin;
-    const limY = cssH * (feedS - 1) * 0.5 + cssH * margin;
+    const limX = cssW * (feedCss - 1) * 0.5 + cssW * margin;
+    const limY = cssH * (feedCss - 1) * 0.5 + cssH * margin;
     feedTx = Math.max(-limX, Math.min(limX, feedTx));
     feedTy = Math.max(-limY, Math.min(limY, feedTy));
   }
 
   function feedZoomAt(sx, sy, factor) {
     const ns = Math.max(1, Math.min(FEED_MAX, feedS * factor));
-    const f = ns / feedS;
-    // keep the content point under (sx,sy) stationary while scaling
-    const px = (sx - feedTx) / feedS;
-    const py = (sy - feedTy) / feedS;
+    // keep the content point under (sx,sy) stationary while scaling the CSS
+    // layer (sensor zoom re-centres on its own and has no pan)
+    const px = (sx - feedTx) / feedCss;
+    const py = (sy - feedTy) / feedCss;
     feedS = ns;
-    feedTx = sx - px * feedS;
-    feedTy = sy - py * feedS;
+    syncFeedZoom();               // splits the new total into sensor + css
+    feedTx = sx - px * feedCss;
+    feedTy = sy - py * feedCss;
     clampFeedPan();
     applyFeedTransform();
   }
@@ -614,6 +757,7 @@
 
   function feedReset() {
     feedS = 1; feedTx = 0; feedTy = 0;
+    syncFeedZoom();
     applyFeedTransform();
     savePrefs();
   }
@@ -739,6 +883,14 @@
     requestRender();
   }
 
+  /* display-only greyscale of the projected / pinning reference photo */
+  function setGrey(v) {
+    greyOn = !!v;
+    if (els && els.grey) els.grey.checked = greyOn;
+    savePrefs();
+    requestRender();
+  }
+
   function setLocked(v) {
     locked = !!v;
     if (els) {
@@ -752,6 +904,26 @@
       if (els.gridCellCtrl) els.gridCellCtrl.classList.toggle('is-locked', locked);
     }
     if (els && els.canvas) els.canvas.classList.toggle('locked', locked);
+  }
+
+  /* Hide / expose the projected reference while tracing. Toggled by a quick
+     screen tap inside the image area when Lock is on (screen presses are frozen
+     there, so we repurpose a tap to hide the reference and reveal the surface). */
+  function setImgHidden(v) {
+    imgHidden = !!v;
+    requestRender();
+  }
+
+  function toggleImgHidden() {
+    setImgHidden(!imgHidden);
+  }
+
+  /* is a css-space point over the projected image (in the flat projection view)? */
+  function pointInImage(cssX, cssY) {
+    const img = imageInfo();
+    if (!img) return false;
+    const p = worldFromScreen(cssX, cssY);
+    return p.x >= 0 && p.y >= 0 && p.x <= img.width && p.y <= img.height;
   }
 
   /* ---------- line-drawing controls ---------- */
@@ -898,6 +1070,7 @@
     // If line mode is on, pinning must target the generated line drawing, so
     // make sure it is computed before the image-source phase is shown.
     if (lineOn && !lineCanvas) scheduleLineRecompute();
+    setArEdit(false);
     syncArHud();
     showArPinPanel();
     syncArStatus();
@@ -944,11 +1117,17 @@
     ctx.fillStyle = usingLine ? '#ffffff' : '#000000';
     ctx.fillRect(0, 0, cssW, cssH);
 
-    // draw the reference under the current image pan/zoom (same as flat view)
+    // draw the reference under the current image pan/zoom (same as flat view).
+    // Greyscale the photo reference (not a line/sketch source) so the tonal
+    // values read clearly while the source pins are chosen. Filter is reset
+    // immediately so the grid / markers below stay in their own colours.
+    const greyPhoto = !usingLine && greyOn;
+    if (greyPhoto) ctx.filter = 'grayscale(1)';
     ctx.translate(cssW / 2, cssH / 2);
     ctx.scale(view.scale, view.scale);
     ctx.translate(-view.cx, -view.cy);
     ctx.drawImage(ref.canvas, 0, 0);
+    if (greyPhoto) ctx.filter = 'none';
     if (gridOn) drawArViewGrid(ctx, iw, ih, usingLine);
     ctx.restore();
 
@@ -1093,6 +1272,30 @@
     }
   }
 
+  /* Numbered draggable handles at the surface (destination) pins, shown while
+     fine-adjusting a solved map. Colours the one under the pointer / being
+     dragged so the user knows which handle they have grabbed. */
+  function drawArEditHandles() {
+    if (!canvasCtx || !arDst.length) return;
+    const ctx = canvasCtx;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (let i = 0; i < arDst.length; i++) {
+      const active = i === arDragIdx;
+      const x = arDst[i].x, y = arDst[i].y;
+      drawPinMarker(ctx, x, y, i + 1, active ? '#ffd23f' : '#3df2a0');
+      if (active) {
+        // highlight ring so the active handle is obvious
+        ctx.beginPath();
+        ctx.arc(x, y, 16, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,210,63,0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   function drawPinMarker(ctx, x, y, n, color) {
     // solid disc with a light halo so the marker reads over any backing
     // (white sketch, photo, grid lines, live feed)
@@ -1128,6 +1331,10 @@
      actual finger point (arLoupe.x/y) when the pointer is lifted. */
   const LOUPE_R = 92;      // css radius of the loupe
   const LOUPE_MAG = 6;     // css px shown per source pixel
+  // how much pointer movement is scaled down when "fine" pin-adjust is on
+  // (1 css px of pointer drag moves the pin 1/AR_FINE px -> sub-pixel control)
+  const AR_FINE = 8;
+  const AR_GRAB = 22;      // css px radius within which a pin handle can be grabbed
   const LOUPE_GAP = 18;    // min gap between finger and the loupe disc
 
   /* Source-pixel rectangle the loupe magnifies around a centre point. */
@@ -1181,14 +1388,14 @@
   /* map a css point on the video's displayed (cover) rect to a video pixel */
   /* map a css point on the overlay to a raw video pixel, accounting for the
      live-feed zoom/pan transform on the <video> element. screen = feedT +
-     feedS * box, so first invert that to get the point in the element's box,
+     feedCss * box, so first invert that to get the point in the element's box,
      then apply the object-fit:cover mapping from the box to raw video px. */
   function arCssToVideo(cssX, cssY) {
     const v = els.video;
     const vw = v.videoWidth || 0, vh = v.videoHeight || 0;
     if (!vw || !vh) return null;
     // element-box point (the <video> covers the whole overlay)
-    const s = Math.max(1, feedS);
+    const s = Math.max(1, feedCss);
     const bx = (cssX - feedTx) / s;
     const by = (cssY - feedTy) / s;
     // object-fit cover within the box
@@ -1404,7 +1611,12 @@
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // greyscale the pinned/warped photo (not a line/sketch source) so tonal
+    // values read the same way they do in the flat projection view. The warp
+    // is a precomputed canvas, so the filter is applied at blit time.
+    if (!lineOn && greyOn) ctx.filter = 'grayscale(1)';
     ctx.drawImage(arWarpCanvas, 0, 0);
+    ctx.filter = 'none';
     ctx.globalAlpha = 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (gridOn) drawArGrid();
@@ -1460,9 +1672,270 @@
     arWarpCanvas = null;
     arMap = null;
     arLoupeStop();
+    setArEdit(false);
     syncArHud();
     if (els.arPanel) els.arPanel.hidden = true;
     requestRender();
+  }
+
+  /* ---------- fine pin adjust ('on' mode) ----------
+     Once a surface map is solved, the user can enter an adjust state that
+     reveals the four surface (destination) pins as draggable handles. Dragging
+     one re-positions that pin and re-solves the homography, giving minute
+     control over the final image-to-surface alignment that pinning alone (at
+     ~1px resolution) cannot reach. A "fine" gain scales pointer movement down
+     by 1/AR_FINE so sub-pixel adjustments are possible. */
+
+  function setArEdit(v) {
+    v = !!v;
+    if (v && arMode !== 'on') v = false; // only valid while a map is active
+    arEdit = v;
+    if (!v) { arDragIdx = -1; arEditPtr = null; arAdjustLoupeStop(); }
+    syncArAdjustHud();
+    requestRender();
+  }
+
+  function setArFine(v) {
+    arFine = !!v;
+    if (els && els.arFine) els.arFine.checked = arFine;
+    savePrefs();
+  }
+
+  /* show/hide + state of the adjust HUD controls and Fine checkbox */
+  function syncArAdjustHud() {
+    if (!els) return;
+    const activeMap = arMode === 'on';
+    if (els.areditGroup) els.areditGroup.hidden = !activeMap;
+    if (els.areditSep) els.areditSep.hidden = !activeMap;
+    if (els.arFineRow) els.arFineRow.hidden = !arEdit;
+    if (els.arFine) els.arFine.checked = !!arFine;
+    if (els.arAdjust) {
+      els.arAdjust.setAttribute('aria-pressed', arEdit ? 'true' : 'false');
+      els.arAdjust.classList.toggle('is-on', arEdit);
+      const label = els.arAdjust.querySelector('[data-i18n]') || els.arAdjust;
+      label.textContent = I18N.t(arEdit ? 'arAdjustStop' : 'arAdjust');
+    }
+  }
+
+  /* rebuild the cached warp at most once per animation frame (during a drag
+     the pointer fires faster than frames; coalescing keeps it smooth) */
+  let arWarpQueued = false;
+  function arQueueWarp() {
+    if (arWarpQueued) return;
+    arWarpQueued = true;
+    requestAnimationFrame(() => {
+      arWarpQueued = false;
+      if (arMode !== 'on') return;
+      arWarpCanvas = null;
+      arBuildWarp();
+      requestRender();
+    });
+  }
+
+  /* nearest destination pin within grab range, or -1 */
+  function arHitDst(cssX, cssY) {
+    let best = -1, bestD = AR_GRAB;
+    for (let i = 0; i < arDst.length; i++) {
+      const d = Math.hypot(cssX - arDst[i].x, cssY - arDst[i].y);
+      if (d <= bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  function arAdjustDown(e) {
+    const rect = els.canvas.getBoundingClientRect();
+    const cssX = e.clientX - rect.left, cssY = e.clientY - rect.top;
+    const i = arHitDst(cssX, cssY);
+    if (i < 0) return;                    // not on a handle: no-op
+    e.preventDefault();
+    els.canvas.setPointerCapture(e.pointerId);
+    arEditPtr = e.pointerId;
+    arDragIdx = i;
+    arDragBase = { px: cssX, py: cssY };
+    arDragPin0 = { x: arDst[i].x, y: arDst[i].y };
+    arAdjustLoupeOnStart();
+    requestRender();
+  }
+
+  function arAdjustMove(e) {
+    if (arDragIdx < 0 || e.pointerId !== arEditPtr) return;
+    const rect = els.canvas.getBoundingClientRect();
+    const cssX = e.clientX - rect.left, cssY = e.clientY - rect.top;
+    const gain = arFine ? 1 / AR_FINE : 1;
+    const nx = arDragPin0.x + (cssX - arDragBase.px) * gain;
+    const ny = arDragPin0.y + (cssY - arDragBase.py) * gain;
+    // candidate position, clamped so the pin stays on the canvas
+    const cand = arDst.slice();
+    cand[arDragIdx] = {
+      x: Math.max(0, Math.min(cssW, nx)),
+      y: Math.max(0, Math.min(cssH, ny)),
+    };
+    const h = computeHomography(arSrc, cand);
+    if (!h) return; // degenerate; keep previous placement
+    arDst[arDragIdx] = cand[arDragIdx];
+    arH = h;
+    e.preventDefault();
+    requestRender();      // markers move now
+    arQueueWarp();        // warp refresh coalesced
+  }
+
+  function arAdjustUp(e) {
+    if (arDragIdx < 0 || e.pointerId !== arEditPtr) return;
+    arDragIdx = -1;
+    arEditPtr = null;
+    arAdjustLoupeStop();
+    arQueueWarp();
+    requestRender();
+  }
+
+  /* ---------- fine-adjust split loupe ----------
+     While a pin is dragged, show a magnified split view near the handle like
+     the loupe of the other pin phases. The TOP pane holds a fixed sample of the
+     reference image about the pin's source (image-space) point — it stays put
+     while you drag. The BOTTOM pane shows the live feed (surface) about the
+     pin's current overlay location, so it follows the drag. Both panes magnify
+     the same on-screen scale (derived from the local homography / feed scale)
+     so a feature lines up across the two halves when the pin is aligned. */
+
+  let arAdjLoopId = 0;
+  let arAdjustLoupeOn = false;
+
+  function arAdjustLoupeOnStart() {
+    if (arAdjustLoupeOn) return;
+    arAdjustLoupeOn = true;
+    if (arAdjLoopId) { cancelAnimationFrame(arAdjLoopId); arAdjLoopId = 0; }
+    const tick = () => {
+      arAdjLoopId = 0;
+      if (!arAdjustLoupeOn || !active || arMode !== 'on' || arDragIdx < 0) return;
+      requestRender(); // keep the live feed pane fresh
+      arAdjLoopId = requestAnimationFrame(tick);
+    };
+    arAdjLoopId = requestAnimationFrame(tick);
+  }
+
+  function arAdjustLoupeStop() {
+    arAdjustLoupeOn = false;
+    if (arAdjLoopId) { cancelAnimationFrame(arAdjLoopId); arAdjLoopId = 0; }
+  }
+
+  /* local scale: how many source(image) px are spanned by 1 css px at the given
+     css point, using the inverse homography derivative. Guards against a
+     degenerate / extreme zoom. */
+  function arLocalImageScale(cssX, cssY) {
+    if (!arH) return 1;
+    const inv = invert3(arH);
+    if (!inv) return 1;
+    const a = applyHomography(inv, cssX, cssY);
+    const b = applyHomography(inv, cssX + 1, cssY);
+    const s = Math.hypot(b.x - a.x, b.y - a.y);
+    return Number.isFinite(s) && s > 1e-6 ? s : 1;
+  }
+
+  /* how many raw video px are spanned by 1 css px at the given css point */
+  function arLocalVideoScale(cssX, cssY) {
+    const a = arCssToVideo(cssX, cssY);
+    const b = arCssToVideo(cssX + 1, cssY);
+    if (!a || !b) return 1;
+    const s = Math.hypot(b.x - a.x, b.y - a.y);
+    return Number.isFinite(s) && s > 1e-6 ? s : 1;
+  }
+
+  const ADJ_LOUPE_R = 78;     // css radius of each split pane (disc)
+  const ADJ_LOUPE_GAP = 8;    // vertical gap between the two panes
+
+  function arAdjustLoupePos(x, y) {
+    // stack both panes vertically (2R + gap tall, 2R wide), offset to the side
+    // with the most room, then clamp fully on-screen
+    const w = ADJ_LOUPE_R * 2;
+    const h = ADJ_LOUPE_R * 2 * 2 + ADJ_LOUPE_GAP;
+    const toRight = (cssW - x) >= x; // more room on the right?
+    let px = toRight ? x + w / 2 + LOUPE_GAP : x - w / 2 - LOUPE_GAP;
+    px = Math.max(ADJ_LOUPE_R, Math.min(cssW - ADJ_LOUPE_R, px));
+    let py = y;
+    py = Math.max(ADJ_LOUPE_R + ADJ_LOUPE_GAP / 2, Math.min(cssH - (ADJ_LOUPE_R * 2 + ADJ_LOUPE_GAP / 2), py));
+    return { x: px, y: py };
+  }
+
+  /* sample a disc of `span` source px centred on (sx, sy) from a canvas/image
+     source `src` (canvas or video element) with intrinsic size sw/s h */
+  function arDrawAdjustDisc(ctx, cx, cy, R, src, sx, sy, span, sw, sh) {
+    const rect = {
+      left: Math.max(0, Math.min(sw - span, sx - span / 2)),
+      top: Math.max(0, Math.min(sh - span, sy - span / 2)),
+      span: Math.max(1, Math.min(span, sw, sh)),
+    };
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    ctx.drawImage(src, rect.left, rect.top, rect.span, rect.span,
+      cx - R, cy - R, R * 2, R * 2);
+    ctx.restore();
+  }
+
+  function drawArAdjustLoupe() {
+    if (!canvasCtx || !arEdit || arDragIdx < 0) return;
+    const idx = arDragIdx;
+    if (idx >= arDst.length || idx >= arSrc.length) return;
+    const ref = arActiveSource();
+    if (!ref) return;
+    const ctx = canvasCtx;
+
+    const pos = arAdjustLoupePos(arDst[idx].x, arDst[idx].y);
+    const topCy = pos.y - (ADJ_LOUPE_R + ADJ_LOUPE_GAP / 2);
+    const botCy = pos.y + (ADJ_LOUPE_R + ADJ_LOUPE_GAP / 2);
+
+    // each pane shows the same css width (2R css) on screen, so magnify each
+    // source to match: image span = css px * image px per css, feed likewise
+    const imgSpan = (ADJ_LOUPE_R * 2) * arLocalImageScale(arDst[idx].x, arDst[idx].y);
+    const feedSpan = (ADJ_LOUPE_R * 2) * arLocalVideoScale(arDst[idx].x, arDst[idx].y);
+
+    // TOP: fixed sample of the reference image about the pin's source point.
+    arDrawAdjustDisc(ctx, pos.x, topCy, ADJ_LOUPE_R, ref.canvas,
+      arSrc[idx].x, arSrc[idx].y, imgSpan, ref.width, ref.height);
+
+    // BOTTOM: live feed about the pin's current overlay position (follows drag)
+    const f = arCssToVideo(arDst[idx].x, arDst[idx].y);
+    if (f) {
+      arDrawAdjustDisc(ctx, pos.x, botCy, ADJ_LOUPE_R, els.video,
+        f.x, f.y, feedSpan, f.vw, f.vh);
+    }
+
+    // centre crosshair + pane rings so alignment reads clearly
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const [c, isSrc] of [[topCy, true], [botCy, false]]) {
+      ctx.beginPath();
+      ctx.arc(pos.x, c, ADJ_LOUPE_R - 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // centre marker (white on image, dark on feed so it shows either way)
+      ctx.beginPath();
+      ctx.arc(pos.x, c, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = isSrc ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.7)';
+      ctx.fill();
+      ctx.strokeStyle = isSrc ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    // small labels: which pane is the fixed image sample vs the live surface
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const tag = (txt, x, y) => {
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(txt, x, y);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(txt, x, y);
+    };
+    tag(I18N.t('arAdjustLoupeSrc'), pos.x - ADJ_LOUPE_R + 5, topCy - ADJ_LOUPE_R + 5);
+    tag(I18N.t('arAdjustLoupeTgt'), pos.x - ADJ_LOUPE_R + 5, botCy + ADJ_LOUPE_R - 15);
+    ctx.restore();
   }
 
   /* Store the last-seen overlay geometry so an orientation change can be
@@ -1497,6 +1970,7 @@
     arH = null;
     arWarpCanvas = null;
     arMap = null;              // recompute for the new geometry
+    setArEdit(false);
     arLoupeStop();
     syncArHud();
     showArPinPanel();
@@ -1581,6 +2055,7 @@
     const label = els.arBtn.querySelector('[data-i18n]') || els.arBtn;
     label.textContent = I18N.t(on ? 'arActive' : setup ? 'arPin' : 'arOn');
     if (els.arPanel) els.arPanel.hidden = !(setup);
+    syncArAdjustHud(); // reveal/adjust the fine-adjust controls when a map is on
     applyHud(); // lower bar may auto-minimise while pinning on small screens
   }
 
@@ -1610,6 +2085,11 @@
       stream.getTracks().forEach((t) => t.stop());
       stream = null;
     }
+    // cancel any pending sensor-zoom apply and drop the capability probe
+    if (feedSensorQueued) { clearTimeout(feedSensorQueued); feedSensorQueued = 0; }
+    feedSensorCap = null;
+    feedSensorZoom = 1;
+    feedSensorImageCapture = null;
     if (els && els.video) {
       els.video.pause();
       els.video.removeAttribute('src');
@@ -1684,6 +2164,7 @@
     if (els.video.readyState < 1) {
       await new Promise((r) => { els.video.addEventListener('loadedmetadata', r, { once: true }); });
     }
+    detectSensorZoom(); // expose real camera zoom if the track reports it
     resize();
     fit();
     applyFeedTransform();
@@ -1734,6 +2215,7 @@
 
   function onPointerDown(e) {
     if (!active) return;
+    if (arMode === 'on' && arEdit) { arAdjustDown(e); return; }
     if (arMode === 'setup') {
       // drag the loupe around; the pin drops where you lift
       e.preventDefault();
@@ -1741,6 +2223,19 @@
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const rect = els.canvas.getBoundingClientRect();
       arLoupeStart(e.pointerId, e.clientX - rect.left, e.clientY - rect.top);
+      return;
+    }
+    if (locked && arMode === 'off') {
+      // While locked, pan/zoom is frozen; a quick tap on the projected image
+      // toggles hide/expose so the artist can check the surface without the
+      // reference. Track only taps (little movement / short press).
+      const rect = els.canvas.getBoundingClientRect();
+      const cssX = e.clientX - rect.left, cssY = e.clientY - rect.top;
+      if (pointInImage(cssX, cssY)) {
+        e.preventDefault();
+        els.canvas.setPointerCapture(e.pointerId);
+        hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none', baseAlpha: alpha };
+      }
       return;
     }
     if (locked) return;
@@ -1761,6 +2256,7 @@
 
   function onPointerMove(e) {
     if (!active) return;
+    if (arMode === 'on' && arEdit) { arAdjustMove(e); return; }
     if (arMode === 'setup' && pointers.has(e.pointerId)) {
       const rect = els.canvas.getBoundingClientRect();
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1768,7 +2264,30 @@
       e.preventDefault();
       return;
     }
-    if (!pointers.has(e.pointerId)) return;
+    if (!pointers.has(e.pointerId)) {
+      // while locked, a press in the image is a potential tap (hide/expose) or
+      // a horizontal swipe (image opacity). Too much travel cancels a tap; a
+      // sufficiently horizontal drag becomes an opacity swipe.
+      if (hideTap && e.pointerId === hideTap.id) {
+        const dx = e.clientX - hideTap.x0;
+        const dy = e.clientY - hideTap.y0;
+        const dist = Math.hypot(dx, dy);
+        // lock onto a swipe only if it is clearly horizontal and far enough
+        if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP &&
+          Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) >= SWIPE_PX) {
+          hideTap.mode = 'swipe';
+          hideTap.baseAlpha = alpha;
+        }
+        if (hideTap.mode === 'swipe') {
+          // left = decrease, right = increase
+          setAlpha(hideTap.baseAlpha + dx * SWIPE_ALPHA_PER_PX);
+        } else if (dist > HIDE_TAP_SLOP) {
+          hideTap.moved = true; // a non-swipe drag is neither tap nor swipe
+        }
+        e.preventDefault();
+      }
+      return;
+    }
     if (locked) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1 && panLast) {
@@ -1800,6 +2319,20 @@
 
   function onPointerEnd(e) {
     const cancelled = e.type === 'pointercancel';
+    if (hideTap && e.pointerId === hideTap.id) {
+      const tap = hideTap;
+      hideTap = null;
+      // a clean tap (little travel, short press) toggles hide/expose
+      const dx = e.clientX - tap.x0, dy = e.clientY - tap.y0;
+      if (!cancelled && !tap.moved && Date.now() - tap.t0 <= HIDE_TAP_MS &&
+        Math.hypot(dx, dy) <= HIDE_TAP_SLOP) {
+        toggleImgHidden();
+        requestRender();
+        return;
+      }
+      return;
+    }
+    if (arMode === 'on' && arEdit) { arAdjustUp(e); return; }
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinchLast = null;
     if (pointers.size === 0) panLast = null;
@@ -1818,7 +2351,7 @@
 
   function onWheel(e) {
     if (!active || locked) return;
-    if (arMode === 'setup') return; // loupe drag, not pan zoom
+    if (arMode === 'setup' || arEdit) return; // loupe drag / pin adjust, not pan zoom
     e.preventDefault();
     const rect = els.canvas.getBoundingClientRect();
     // feed zoom uses a finer exponential than the normal image zoom
@@ -1833,6 +2366,7 @@
     els.alpha.value = String(Math.round(alpha * 100));
     if (els.alphaVal) els.alphaVal.textContent = Math.round(alpha * 100) + '%';
     els.grid.checked = gridOn;
+    if (els.grey) els.grey.checked = greyOn;
     els.gridCell.value = String(gridCell);
     if (els.gridCellVal) els.gridCellVal.textContent = I18N.t('traceGridPx', { n: gridCell });
     els.lineBlur.value = String(lineBlur);
@@ -1845,6 +2379,8 @@
     }
     if (els.lineMagenta) els.lineMagenta.checked = lineMagenta;
     setLocked(false);
+    imgHidden = false; // start each session with the reference image shown
+    hideTap = null;
     // start each session on the normal photo; line art & AR are opt-in
     lineOn = false;
     linePanelHidden = false;
@@ -1888,6 +2424,7 @@
     stopStream();
     startCamera().then((res) => {
       if (!res.ok) toast(res.err);
+      else { detectSensorZoom(); applyFeedTransform(); }
     });
   }
 
@@ -1904,6 +2441,7 @@
       alpha: grab('project-alpha'),
       alphaVal: grab('project-alpha-val'),
       grid: grab('project-grid'),
+      grey: grab('project-grey'),
       gridCell: grab('project-gridcell'),
       gridCellVal: grab('project-gridcell-val'),
       gridCellCtrl: grab('project-gridcell-ctrl'),
@@ -1935,6 +2473,11 @@
       arNext: grab('project-ar-next'),
       arClear: grab('project-ar-clear'),
       arClose: grab('project-ar-close'),
+      areditGroup: grab('project-aredit-group'),
+      areditSep: grab('project-aredit-sep'),
+      arAdjust: grab('project-ar-adjust'),
+      arFineRow: grab('project-ar-fine-row'),
+      arFine: grab('project-ar-fine'),
     };
     canvasCtx = els.canvas.getContext('2d');
     loadPrefs();
@@ -1943,6 +2486,7 @@
 
     els.alpha.addEventListener('input', () => setAlpha(parseFloat(els.alpha.value) / 100));
     els.grid.addEventListener('change', () => setGrid(els.grid.checked));
+    if (els.grey) els.grey.addEventListener('change', () => setGrey(els.grey.checked));
     els.gridCell.addEventListener('input', () => setGridCell(parseFloat(els.gridCell.value)));
     els.lock.addEventListener('click', () => setLocked(!locked));
     els.cam.addEventListener('click', switchCamera);
@@ -1966,6 +2510,8 @@
     if (els.arNext) els.arNext.addEventListener('click', arNext);
     if (els.arClear) els.arClear.addEventListener('click', arStop);
     if (els.arClose) els.arClose.addEventListener('click', arStop);
+    if (els.arAdjust) els.arAdjust.addEventListener('click', () => setArEdit(!arEdit));
+    if (els.arFine) els.arFine.addEventListener('change', () => setArFine(els.arFine.checked));
     if (els.hudToggle) els.hudToggle.addEventListener('click', toggleHudMin);
 
     // detect narrow screens so the HUD can auto-minimise during pinning
@@ -2004,14 +2550,20 @@
       if (document.hidden) {
         stopStream();
       } else if (!stream) {
-        startCamera().then((res) => { if (!res.ok) toast(res.err); });
+        startCamera().then((res) => {
+          if (!res.ok) toast(res.err);
+          else { detectSensorZoom(); applyFeedTransform(); }
+        });
       }
     });
     // Also handle the case where the OS returns focus without a visibility
     // change firing (e.g. some Android WebView flows still emit 'focus').
     global.addEventListener('focus', () => {
       if (active && !document.hidden && !stream) {
-        startCamera().then((res) => { if (!res.ok) toast(res.err); });
+        startCamera().then((res) => {
+          if (!res.ok) toast(res.err);
+          else { detectSensorZoom(); applyFeedTransform(); }
+        });
       }
     });
   }
@@ -2031,6 +2583,7 @@
       computeFit, gridLines, snapToGrid, thirdLineMarkers, clampScale,
       luminanceOf, boxBlur, makeLineDrawing, lineDrawingFromGray, keyWhiteToAlpha,
       computeHomography, invert3, applyHomography,
+      splitFeedZoom,
     },
   };
 

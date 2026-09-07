@@ -53,6 +53,7 @@
       leave() { global.CP.PaletteEditor.close(); } },
     { target: '.toolbar-slider', title: 'stepSoftenTitle', body: 'stepSoftenBody' },
     { target: '#history', title: 'stepHistoryTitle', body: 'stepHistoryBody' },
+    { target: '#btn-project', title: 'stepTraceTitle', body: 'stepTraceBody' },
   ];
 
   function build() {
@@ -122,6 +123,39 @@
     posFrame = requestAnimationFrame(() => { posFrame = 0; position(selector); });
   }
 
+  /* Pure, testable: choose a bubble top-left so it stays fully inside the
+     viewport. Tries, in order: below the spot, above it, to the right, to the
+     left — the first candidate whose whole bubble fits is used. If no single
+     candidate fits (spot larger than the viewport), fall back to clamping the
+     below position inside the viewport so the bubble is never off-screen.
+     rect = {left,top,width,height} of the spotlight; br = bubble w/h;
+     vw/vh = viewport; pad/gap = spacing. Returns {left, top}. */
+  function computePlacement(rect, br, vw, vh, pad, gap) {
+    const P = pad, G = gap;
+    const bw = br.width, bh = br.height;
+    // horizontal + vertical centre of the spot, clamped to keep bubble inside
+    const centreX = rect.left + (rect.width - bw) / 2;
+    const centreY = rect.top + (rect.height - bh) / 2;
+    const clampX = (x) => Math.max(P, Math.min(x, vw - bw - P));
+    const clampY = (y) => Math.max(P, Math.min(y, vh - bh - P));
+    const fitsX = (x) => x >= P && x + bw + P <= vw;
+    const fitsY = (y) => y >= P && y + bh + P <= vh;
+    const fits = (x, y) => fitsX(x) && fitsY(y);
+
+    const candidates = [
+      { left: clampX(centreX), top: rect.top + rect.height + G, prio: 0 },  // below
+      { left: clampX(centreX), top: rect.top - bh - G, prio: 1 },           // above
+      { left: rect.right + G, top: clampY(centreY), prio: 2 },              // right
+      { left: rect.left - bw - G, top: clampY(centreY), prio: 3 },          // left
+    ];
+    candidates.sort((a, b) => a.prio - b.prio);
+    for (const c of candidates) {
+      if (fits(c.left, c.top)) return { left: c.left, top: c.top };
+    }
+    // nothing fully fits (giant spot / tiny viewport): clamp into view
+    return { left: clampX(candidates[0].left), top: clampY(candidates[0].top) };
+  }
+
   function position(selector) {
     const el = document.querySelector(selector);
     if (!el) return;
@@ -132,25 +166,10 @@
     spot.style.top = r.top + 'px';
 
     const br = bubble.getBoundingClientRect();
-    const pad = 16;
-    let left = r.left;
-    let top = r.top + r.height + 14;
-
-    // place right if enough space to the right
-    if (r.right + br.width + pad <= innerWidth) {
-      left = r.right + 14;
-      top = r.top;
-    } else if (r.left - br.width - pad >= 0) {
-      left = r.left - br.width - 14;
-      top = r.top;
-    } else if (top + br.height > innerHeight - pad) {
-      top = Math.max(pad, r.top - br.height - 14);
-      left = Math.max(pad, Math.min(r.left, innerWidth - br.width - pad));
-    } else {
-      left = Math.max(pad, Math.min(left, innerWidth - br.width - pad));
-    }
-    bubble.style.left = left + 'px';
-    bubble.style.top = top + 'px';
+    const pad = 16, gap = 14;
+    const placement = computePlacement(r, br, innerWidth, innerHeight, pad, gap);
+    bubble.style.left = placement.left + 'px';
+    bubble.style.top = placement.top + 'px';
   }
 
   function renderBubble(step, i) {
@@ -238,5 +257,9 @@
   }
 
   global.CP = global.CP || {};
-  global.CP.Tutorial = { init, start, isVisible };
+  global.CP.Tutorial = {
+    init, start, isVisible,
+    /* testable internals */
+    __internal: { STEPS, computePlacement },
+  };
 })(window);

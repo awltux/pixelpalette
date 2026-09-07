@@ -299,6 +299,22 @@
     document.addEventListener('pointercancel', endFineDrag, true);
   }
 
+  /* ---------- first-page splash ---------- */
+  // The loader covers the viewport from first paint. Hide it only once boot
+  // is complete AND the demo image has actually been drawn (fit() renders via
+  // requestAnimationFrame), so nothing flashes or swaps mid-frame.
+  function bootReady() {
+    const el = document.getElementById('boot-overlay');
+    if (!el) return;
+    // wait one extra frame so the canvas paints the demo before fading
+    const raf = global.requestAnimationFrame ||
+      ((cb) => setTimeout(cb, 16));
+    raf(() => raf(() => {
+      el.classList.add('boot-done');
+      setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 400);
+    }));
+  }
+
   /* ---------- boot ---------- */
   function boot() {
     I18N.apply();
@@ -344,6 +360,9 @@
     } else {
       startTour();
     }
+
+    // reveal the app once the demo image has been drawn
+    bootReady();
   }
 
   if (document.readyState === 'loading') {

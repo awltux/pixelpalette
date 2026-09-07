@@ -318,5 +318,37 @@ test('keyWhiteToAlpha output is monotonic in darkness per pixel', () => {
   assert.ok(a09 < a05, 'higher key amount lowers the white pixel alpha');
 });
 
+test('splitFeedZoom without a sensor cap keeps all magnification in CSS', () => {
+  const { splitFeedZoom } = loadTracing();
+  const s = host(splitFeedZoom(3, null));
+  assert.equal(s.sensor, 1);
+  assert.equal(s.css, 3);
+});
+
+test('splitFeedZoom uses sensor zoom up to the cap and CSS beyond it', () => {
+  const { splitFeedZoom } = loadTracing();
+  const cap = { min: 1, max: 4, step: 0 };
+  // within sensor range => sensor does it all, no CSS upscale
+  const within = host(splitFeedZoom(2.5, cap));
+  assert.ok(Math.abs(within.sensor - 2.5) < 1e-9);
+  assert.ok(Math.abs(within.css - 1) < 1e-9);
+  // beyond sensor max => sensor pinned at max, remainder in CSS
+  const beyond = host(splitFeedZoom(8, cap));
+  assert.ok(Math.abs(beyond.sensor - 4) < 1e-9);
+  assert.ok(Math.abs(beyond.css - 2) < 1e-9);
+});
+
+test('splitFeedZoom preserves total = sensor * css', () => {
+  const { splitFeedZoom } = loadTracing();
+  for (const cap of [null, { min: 1, max: 4, step: 0 }, { min: 1, max: 1.5, step: 0.1 }]) {
+    for (const total of [1, 1.5, 2, 3, 6, 10]) {
+      const s = host(splitFeedZoom(total, cap));
+      assert.ok(s.sensor >= 1 && s.css >= 1);
+      assert.ok(Math.abs(s.sensor * s.css - total) < 1e-6, `total=${total} cap=${JSON.stringify(cap)}`);
+    }
+  }
+});
+
+
 
 

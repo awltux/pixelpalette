@@ -109,6 +109,29 @@ Google Search Console verification: paste the meta tag here after adding the sit
 </head>
 <body>
 
+<!-- First-page loading splash. Pure HTML/CSS (no JS required) so it paints
+     immediately even on slow connections while the bundled script downloads
+     and boots. Removed by js/app.js once the app is ready (boot done + the
+     demo image has been drawn). With JS disabled it is hidden via <noscript>. -->
+<div class="boot-overlay" id="boot-overlay" aria-hidden="true">
+  <div class="boot-card">
+    <svg class="boot-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="12" cy="12" r="3.4" fill="currentColor"/>
+    </svg>
+    <span class="boot-spinner" aria-hidden="true"></span>
+    <div class="boot-title">
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="9" stroke="currentColor"/>
+        <circle cx="12" cy="12" r="3.4" fill="currentColor"/>
+      </svg>
+      <span data-i18n="appName">Pixel Palette</span>
+    </div>
+    <div class="boot-tag" data-i18n="bootLoading">Loading&hellip;</div>
+  </div>
+</div>
+<noscript><style>#boot-overlay { display: none; }</style></noscript>
+
 <header class="app-header">
   <div class="brand">
     <a class="brand-home" href="../index.html" aria-label="Home">
@@ -643,6 +666,18 @@ Google Search Console verification: paste the meta tag here after adding the sit
       </button>
     </div>
 
+    <span class="hud-sep hud-sep-aredit" id="project-aredit-sep" aria-hidden="true" hidden></span>
+    <div class="hud-group hud-group-aredit" id="project-aredit-group" role="group" aria-label="Pin adjust" hidden>
+      <button id="project-ar-adjust" class="btn-lock btn-ar-adjust" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3"/></svg>
+        <span data-i18n="arAdjust">Adjust pins</span>
+      </button>
+      <label class="project-ctrl project-ar-fine" id="project-ar-fine-row" data-i18n-attr="title:arFineHelp" hidden>
+        <input type="checkbox" id="project-ar-fine">
+        <span class="project-ctrl-label" data-i18n="arFine">Fine</span>
+      </label>
+    </div>
+
     <span class="hud-sep" aria-hidden="true"></span>
 
     <!-- image overlay: opacity + grid -->
@@ -651,6 +686,10 @@ Google Search Console verification: paste the meta tag here after adding the sit
         <span class="project-ctrl-label" data-i18n="traceAlpha">Overlay opacity</span>
         <input type="range" id="project-alpha" min="0" max="100" step="1" value="60">
         <output id="project-alpha-val">60%</output>
+      </label>
+      <label class="project-ctrl project-grid-check" id="project-grey-row" data-i18n-attr="title:traceGreyHelp">
+        <input type="checkbox" id="project-grey">
+        <span class="project-ctrl-label" data-i18n="traceGrey">Greyscale</span>
       </label>
       <label class="project-ctrl project-grid-check" data-i18n-attr="title:traceGrid">
         <input type="checkbox" id="project-grid">

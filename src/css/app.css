@@ -73,6 +73,65 @@ body {
   flex-direction: column;
 }
 
+/* ---------- first-page loading splash ----------
+   Covers the whole viewport from the very first paint (pure CSS, no JS
+   needed) so slow connections see something while the bundle loads. It is
+   faded + removed by js/app.js once the app is ready. */
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--text);
+  transition: opacity .35s ease;
+}
+.boot-overlay.boot-done {
+  opacity: 0;
+  pointer-events: none;
+}
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.boot-mark {
+  width: 46px;
+  height: 46px;
+  color: var(--accent);
+  animation: boot-pulse 1.2s ease-in-out infinite;
+}
+.boot-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-top-color: var(--accent);
+  animation: boot-spin .9s linear infinite;
+}
+.boot-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.boot-title svg { color: var(--accent); }
+.boot-tag {
+  font-size: .8rem;
+  color: var(--text-dim);
+}
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+@keyframes boot-pulse { 50% { transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) {
+  .boot-spinner, .boot-mark { animation: none; }
+}
+
 /* ---------- header ---------- */
 .app-header {
   display: flex;
@@ -719,6 +778,8 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .tutorial-bubble {
   position: absolute;
   width: min(340px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
@@ -1004,6 +1065,10 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 /* vertical separators between groups */
 .hud-sep { width: 1px; height: 26px; background: var(--border-strong); flex: none; }
 
+/* groups/separators that are shown only in certain AR states */
+.hud-group[hidden],
+.hud-sep[hidden] { display: none; }
+
 /* each logical group */
 .hud-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .project-hud > .hud-group { margin: 0; }
@@ -1063,7 +1128,14 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .project-hud.hud-min .hud-exit,
 .project-hud.hud-min .project-status,
 .project-hud.hud-min .hud-sep { display: none; }
-.project-hud.hud-min .hud-toggle { margin: 0 auto; }
+/* keep the "show" chevron in the same right-hand corner as it sits when the
+   dock is expanded, instead of centring it */
+.project-hud.hud-min .hud-toggle {
+  margin: 0 0 0 auto;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-soft);
+}
+.project-hud.hud-min .hud-toggle.is-up .hud-toggle-chevron { transform: rotate(180deg); }
 
 /* HUD buttons — consistent, compact */
 .project-hud .btn,
@@ -1098,6 +1170,10 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .project-hud .btn-line.is-on { background: var(--ok); border-color: var(--ok); color: #fff; }
 .project-hud .btn-line.is-on:hover { background: var(--ok); border-color: var(--ok); }
 .project-hud .btn-ar.is-on { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
+.project-hud .btn-ar-adjust.is-on { background: var(--warn); border-color: var(--warn); color: #1c2130; }
+.project-hud .btn-ar-adjust.is-on:hover { background: var(--warn); border-color: var(--warn); }
+.project-hud .project-ar-fine { cursor: pointer; }
+.project-hud .project-ar-fine input { width: 15px; height: 15px; margin: 0; accent-color: var(--warn); cursor: pointer; }
 .project-hud .btn-feedzoom.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .project-hud #project-lock.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
