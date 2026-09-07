@@ -1091,6 +1091,9 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 }
 .project-ctrl.is-locked { opacity: .4; }
 .project-ctrl input[type="range"]:disabled { cursor: not-allowed; }
+/* a locked (frozen) reference must not be re-gridded: stop the slider and its
+   clickable label from taking any pointer/keyboard interaction while disabled */
+.project-ctrl.is-locked { pointer-events: none; }
 .project-grid-check { cursor: pointer; }
 .project-grid-check input {
   width: 15px; height: 15px; margin: 0;

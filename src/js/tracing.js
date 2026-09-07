@@ -877,6 +877,7 @@
   }
 
   function setGridCell(px) {
+    if (locked) return; // the frozen reference must not be re-gridded
     gridCell = Math.max(1, Math.round(px));
     if (els) {
       els.gridCell.value = String(gridCell);
