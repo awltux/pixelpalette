@@ -72,7 +72,7 @@
   // screen "tap"/swipe gestures on the projected image while Lock is on
   const HIDE_TAP_SLOP = 12;      // max css px of finger travel to count as a tap
   const HIDE_TAP_MS = 400;       // max tap duration (ms)
-  const SWIPE_PX = 40;           // horizontal travel that starts an opacity swipe
+  const SWIPE_PX = 40;           // vertical travel that starts an opacity swipe
   const SWIPE_ALPHA_PER_PX = 1 / 350; // opacity change per css px of swipe
 
   // adjustable state, persisted
@@ -86,8 +86,9 @@
   // always drawn regardless of opacity. Only meaningful in the flat projection.
   let restoreAlpha = 0.6; // opacity to bring back after a hide-peek
   // a short screen tap in the image area while Lock is on peeks the reference
-  // (see peekHide above); a left/right swipe adjusts image opacity. Tracked
-  // separately from the pan/pinch state so a tap/swipe can't pan/zoom.
+  // (see peekHide above); an up/down swipe adjusts image opacity (up = more
+  // opaque, down = more transparent). Tracked separately from the pan/pinch
+  // state so a tap/swipe can't pan/zoom.
   // {id, x0, y0, t0, moved, mode: 'none'|'swipe', baseAlpha}
   let hideTap = null;
   // display the projected photo (and the pinning reference photo) in
@@ -2274,21 +2275,21 @@
     }
     if (!pointers.has(e.pointerId)) {
       // while locked, a press in the image is a potential tap (hide/expose) or
-      // a horizontal swipe (image opacity). Too much travel cancels a tap; a
-      // sufficiently horizontal drag becomes an opacity swipe.
+      // a vertical swipe (image opacity). Too much travel cancels a tap; a
+      // sufficiently vertical drag becomes an opacity swipe.
       if (hideTap && e.pointerId === hideTap.id) {
         const dx = e.clientX - hideTap.x0;
         const dy = e.clientY - hideTap.y0;
         const dist = Math.hypot(dx, dy);
-        // lock onto a swipe only if it is clearly horizontal and far enough
+        // lock onto a swipe only if it is clearly vertical and far enough
         if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP &&
-          Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) >= SWIPE_PX) {
+          Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) >= SWIPE_PX) {
           hideTap.mode = 'swipe';
           hideTap.baseAlpha = alpha;
         }
         if (hideTap.mode === 'swipe') {
-          // left = decrease, right = increase
-          setAlpha(hideTap.baseAlpha + dx * SWIPE_ALPHA_PER_PX);
+          // up = increase, down = decrease (y grows downward)
+          setAlpha(hideTap.baseAlpha - dy * SWIPE_ALPHA_PER_PX);
         } else if (dist > HIDE_TAP_SLOP) {
           hideTap.moved = true; // a non-swipe drag is neither tap nor swipe
         }
