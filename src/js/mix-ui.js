@@ -106,15 +106,32 @@
     els.barInfo = document.getElementById('rb-info');
     els.barDot = document.getElementById('rb-dot');
     if (els.bar) {
-      const scrollToMix = () => {
+      // Mobile "Show mix" footer. Toggling: first tap scrolls the colour-gamut
+      // block into view; the next tap scrolls back to the top (the toolbar with
+      // the Open Image button), and so on.
+      let atGamut = false;
+      const gamutBlock = () => {
         const panel = document.getElementById('panel-mix');
-        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return panel ? panel.querySelector('.gamut-block') : null;
       };
-      els.bar.addEventListener('click', scrollToMix);
+      const openImage = () => document.getElementById('btn-open');
+      const scrollBar = (el) => {
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+      const onBarToggle = () => {
+        if (!atGamut) {
+          const g = gamutBlock();
+          if (g) { atGamut = true; scrollBar(g); return; }
+        }
+        // second tap (or the gamut block is unavailable): return to Open Image
+        atGamut = false;
+        scrollBar(openImage());
+      };
+      els.bar.addEventListener('click', onBarToggle);
       els.bar.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          scrollToMix();
+          onBarToggle();
         }
       });
     }
