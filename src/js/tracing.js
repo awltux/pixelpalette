@@ -926,14 +926,6 @@
     }
   }
 
-  /* is a css-space point over the projected image (in the flat projection view)? */
-  function pointInImage(cssX, cssY) {
-    const img = imageInfo();
-    if (!img) return false;
-    const p = worldFromScreen(cssX, cssY);
-    return p.x >= 0 && p.y >= 0 && p.x <= img.width && p.y <= img.height;
-  }
-
   /* ---------- line-drawing controls ---------- */
   let linePanelHidden = false;
 
@@ -2221,6 +2213,63 @@
   function rectLeft() { return els.canvas.getBoundingClientRect().left; }
   function rectTop() { return els.canvas.getBoundingClientRect().top; }
 
+  /* Is the pointer over the projection HUD? Its controls take their own taps,
+     so the locked peek/swipe gesture must not start (or count) there. */
+  function overHud(e) {
+    const hud = els && els.hud;
+    if (!hud) return false;
+    const r = hud.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right &&
+      e.clientY >= r.top && e.clientY <= r.bottom;
+  }
+
+  /* While locked, a press on the projection surface (anywhere off the HUD)
+     starts a peek/swipe: a quick tap peeks the reference away, a vertical
+     swipe adjusts opacity. The gesture then tracks across the whole window
+     (see onLockedMove/onLockedEnd) so a swipe runs on past the image edge. */
+  function startLockedGesture(e) {
+    if (!locked || arMode !== 'off') return false;
+    if (overHud(e)) return false;
+    e.preventDefault();
+    els.canvas.setPointerCapture(e.pointerId);
+    hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none', baseAlpha: alpha };
+    return true;
+  }
+
+  function onLockedMove(e) {
+    if (!hideTap || e.pointerId !== hideTap.id) return;
+    const dx = e.clientX - hideTap.x0;
+    const dy = e.clientY - hideTap.y0;
+    const dist = Math.hypot(dx, dy);
+    // lock onto a swipe only if it is clearly vertical and far enough
+    if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP &&
+      Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) >= SWIPE_PX) {
+      hideTap.mode = 'swipe';
+      hideTap.baseAlpha = alpha;
+    }
+    if (hideTap.mode === 'swipe') {
+      // up = increase, down = decrease (y grows downward)
+      setAlpha(hideTap.baseAlpha - dy * SWIPE_ALPHA_PER_PX);
+    } else if (dist > HIDE_TAP_SLOP) {
+      hideTap.moved = true; // a non-swipe drag is neither tap nor swipe
+    }
+    e.preventDefault();
+  }
+
+  function onLockedEnd(e) {
+    if (!hideTap || e.pointerId !== hideTap.id) return;
+    const cancelled = e.type === 'pointercancel';
+    const tap = hideTap;
+    hideTap = null;
+    // a clean tap (little travel, short press) peeks the reference away
+    const dx = e.clientX - tap.x0, dy = e.clientY - tap.y0;
+    if (!cancelled && !tap.moved && Date.now() - tap.t0 <= HIDE_TAP_MS &&
+      Math.hypot(dx, dy) <= HIDE_TAP_SLOP) {
+      peekHide();
+      requestRender();
+    }
+  }
+
   function onPointerDown(e) {
     if (!active) return;
     if (arMode === 'on' && arEdit) { arAdjustDown(e); return; }
@@ -2234,17 +2283,9 @@
       return;
     }
     if (locked && arMode === 'off') {
-      // While locked, pan/zoom is frozen; a quick tap on the projected image
-      // peeks the reference away (opacity 0, grid stays) so the artist can
-      // check the surface, and a second tap restores it. Track only taps
-      // (little movement / short press).
-      const rect = els.canvas.getBoundingClientRect();
-      const cssX = e.clientX - rect.left, cssY = e.clientY - rect.top;
-      if (pointInImage(cssX, cssY)) {
-        e.preventDefault();
-        els.canvas.setPointerCapture(e.pointerId);
-        hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none', baseAlpha: alpha };
-      }
+      // While locked, pan/zoom is frozen; the whole projection surface (minus
+      // the HUD) is a gesture area. See startLockedGesture for the rest.
+      startLockedGesture(e);
       return;
     }
     if (locked) return;
@@ -2273,31 +2314,10 @@
       e.preventDefault();
       return;
     }
-    if (!pointers.has(e.pointerId)) {
-      // while locked, a press in the image is a potential tap (hide/expose) or
-      // a vertical swipe (image opacity). Too much travel cancels a tap; a
-      // sufficiently vertical drag becomes an opacity swipe.
-      if (hideTap && e.pointerId === hideTap.id) {
-        const dx = e.clientX - hideTap.x0;
-        const dy = e.clientY - hideTap.y0;
-        const dist = Math.hypot(dx, dy);
-        // lock onto a swipe only if it is clearly vertical and far enough
-        if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP &&
-          Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) >= SWIPE_PX) {
-          hideTap.mode = 'swipe';
-          hideTap.baseAlpha = alpha;
-        }
-        if (hideTap.mode === 'swipe') {
-          // up = increase, down = decrease (y grows downward)
-          setAlpha(hideTap.baseAlpha - dy * SWIPE_ALPHA_PER_PX);
-        } else if (dist > HIDE_TAP_SLOP) {
-          hideTap.moved = true; // a non-swipe drag is neither tap nor swipe
-        }
-        e.preventDefault();
-      }
-      return;
-    }
-    if (locked) return;
+    // The locked peek/swipe gesture is driven by the window listeners
+    // (onLockedMove / onLockedEnd) so it tracks across the whole window, not
+    // just the canvas/image. A locked pointer is never added to `pointers`.
+    if (locked || !pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1 && panLast) {
       const dx = e.clientX - panLast.x;
@@ -2328,19 +2348,7 @@
 
   function onPointerEnd(e) {
     const cancelled = e.type === 'pointercancel';
-    if (hideTap && e.pointerId === hideTap.id) {
-      const tap = hideTap;
-      hideTap = null;
-      // a clean tap (little travel, short press) peeks the reference away
-      const dx = e.clientX - tap.x0, dy = e.clientY - tap.y0;
-      if (!cancelled && !tap.moved && Date.now() - tap.t0 <= HIDE_TAP_MS &&
-        Math.hypot(dx, dy) <= HIDE_TAP_SLOP) {
-        peekHide();
-        requestRender();
-        return;
-      }
-      return;
-    }
+    // locked peek/swipe completion is handled by the window listener
     if (arMode === 'on' && arEdit) { arAdjustUp(e); return; }
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinchLast = null;
@@ -2539,6 +2547,12 @@
     els.canvas.addEventListener('pointermove', onPointerMove);
     els.canvas.addEventListener('pointerup', onPointerEnd);
     els.canvas.addEventListener('pointercancel', onPointerEnd);
+    // The locked peek/swipe gesture tracks across the whole window (not just
+    // the canvas/image), so pointermove/up for it are caught here. They no-op
+    // unless a hideTap gesture is in progress.
+    global.addEventListener('pointermove', onLockedMove);
+    global.addEventListener('pointerup', onLockedEnd);
+    global.addEventListener('pointercancel', onLockedEnd);
     els.canvas.addEventListener('wheel', onWheel, { passive: false });
     els.canvas.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
     // a long press (mouse down held / touch hold) must not open the OS context
