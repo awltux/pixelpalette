@@ -2182,6 +2182,24 @@
     els.overlay.hidden = true;
   }
 
+  /* Exit-projection confirmation: the Exit button asks before leaving, since
+     it stops the camera and fullscreen. Programmatic exits (e.g. a camera
+     start failure) call exit() directly and skip this dialog. */
+  function openExitConfirm() {
+    if (!active) return;
+    if (!els.exitConfirm) { exit(); return; }
+    els.exitConfirm.hidden = false;
+    if (els.exitYes) els.exitYes.focus();
+  }
+  function closeExitConfirm() {
+    if (els.exitConfirm) els.exitConfirm.hidden = true;
+    if (els.exit) els.exit.focus();
+  }
+  function confirmExitProject() {
+    closeExitConfirm();
+    exit();
+  }
+
   function requestFullscreen() {
     if (els.overlay.requestFullscreen) {
       try { els.overlay.requestFullscreen(); } catch (e) { /* ignore */ }
@@ -2473,6 +2491,9 @@
       cam: grab('project-cam'),
       fit: grab('project-fit'),
       exit: grab('project-exit'),
+      exitConfirm: grab('project-exit-confirm'),
+      exitYes: grab('project-exit-yes'),
+      exitCancel: grab('project-exit-cancel'),
       feedToggle: grab('project-feedzoom'),
       feedIn: grab('project-feed-in'),
       feedOut: grab('project-feed-out'),
@@ -2515,7 +2536,20 @@
     els.lock.addEventListener('click', () => setLocked(!locked));
     els.cam.addEventListener('click', switchCamera);
     els.fit.addEventListener('click', () => fit());
-    els.exit.addEventListener('click', () => exit());
+    els.exit.addEventListener('click', openExitConfirm);
+    if (els.exitYes) els.exitYes.addEventListener('click', confirmExitProject);
+    if (els.exitCancel) els.exitCancel.addEventListener('click', closeExitConfirm);
+    if (els.exitConfirm) {
+      // clicking the dark backdrop dismisses without exiting
+      els.exitConfirm.addEventListener('click', (e) => {
+        if (e.target === els.exitConfirm) closeExitConfirm();
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && els.exitConfirm && !els.exitConfirm.hidden) {
+        closeExitConfirm();
+      }
+    });
     if (els.feedToggle) els.feedToggle.addEventListener('click', () => { if (!locked) setFeedOn(!feedOn); });
     if (els.feedIn) els.feedIn.addEventListener('click', () => { if (locked) return; setFeedOn(true); feedZoomBy(FEED_BTN_STEP); });
     if (els.feedOut) els.feedOut.addEventListener('click', () => { if (locked) return; setFeedOn(true); feedZoomBy(1 / FEED_BTN_STEP); });

@@ -1201,6 +1201,27 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .project-hud .project-feed-btns .btn { height: 26px; padding: 0 9px; font-size: .7rem; }
 .project-hud .project-feed-btns .hud-icon { width: 26px; padding: 0; }
 
+/* Exit-projection confirmation dialog (above the whole projection overlay) */
+.project-confirm {
+  position: absolute; inset: 0; z-index: 400;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .55);
+}
+.project-confirm[hidden] { display: none; }
+.project-confirm-card {
+  max-width: 340px; width: 100%;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+}
+.project-confirm-title { margin: 0 0 6px; font-size: 1rem; font-weight: 700; }
+.project-confirm-msg { margin: 0; font-size: .82rem; line-height: 1.45; color: var(--text-dim); }
+.project-confirm-actions {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;
+}
+
 /* transient toast */
 .toast {
   position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
