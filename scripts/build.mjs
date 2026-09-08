@@ -122,9 +122,22 @@ function build() {
     const from = resolve(SRC, name);
     if (!statSync(from).isFile()) continue; // dirs (css/, js/, assets/) are handled above
     if (name === 'index.html') continue;    // the bundle itself was written already
+    if (name === 'sw.js') continue;         // generated below with the build hash stamped in
     copyFileSync(from, resolve(DIST, name));
     copied++;
   }
+
+  // --- stamp + emit the service worker (offline caching) ---
+  const swTemplate = readFileSync(resolve(SRC, 'sw.js'), 'utf8');
+  const sw = swTemplate.split(BUILD_HASH_PLACEHOLDER).join(hash);
+  writeFileSync(resolve(DIST, 'sw.js'), sw, 'utf8');
+
+  // --- version probe used by the startup update check ---
+  writeFileSync(
+    resolve(DIST, 'version.json'),
+    JSON.stringify({ build: hash, builtAt: new Date().toISOString() }) + '\n',
+    'utf8'
+  );
 
   const extra = copied ? ` + ${copied} static file(s)` : '';
   console.log(`Built ${dest} (${sizeKb} KB, ${scriptFiles.length} JS files inlined${extra}).`);

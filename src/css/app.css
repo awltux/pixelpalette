@@ -1248,6 +1248,22 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 }
 .toast[hidden] { display: none; }
 
+/* Update-available banner: fixed ribbon across the top when a newer build is online */
+.update-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; padding: 8px 12px;
+  background: var(--accent); color: #fff;
+  box-shadow: var(--shadow);
+  font-size: .82rem;
+}
+.update-banner[hidden] { display: none; }
+.update-banner .btn {
+  flex: none; height: 26px; padding: 0 12px;
+  background: #fff; color: var(--accent); border: 1px solid #fff;
+}
+.update-banner .btn:hover { background: #f2f4f8; }
+
 /* ---------- line-drawing toggle & white tuning panel ---------- */
 .project-lines {
   position: absolute; top: 12px; right: 12px; z-index: 6;

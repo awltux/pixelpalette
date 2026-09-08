@@ -40,6 +40,8 @@
       btnLock: 'Lock pan',
       btnUnlock: 'Unlock pan',
       btnProject: 'Tracing',
+      updateAvailable: 'A new version of Pixel Palette is available.',
+      updateReload: 'Reload',
       projectAria: 'Project the loaded image over a live camera feed for tracing',
       projectNoImage: 'Open an image first \u2014 there is nothing to project.',
       traceAlpha: 'Overlay opacity',

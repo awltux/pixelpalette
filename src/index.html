@@ -132,6 +132,12 @@ Google Search Console verification: paste the meta tag here after adding the sit
 </div>
 <noscript><style>#boot-overlay { display: none; }</style></noscript>
 
+<!-- Update-available banner (shown by js/app.js when a newer build is online) -->
+<div class="update-banner" id="update-banner" role="status" hidden>
+  <span class="update-banner-msg" data-i18n="updateAvailable">A new version is available.</span>
+  <button id="update-reload" class="btn btn-primary btn-sm" type="button" data-i18n="updateReload">Reload</button>
+</div>
+
 <header class="app-header">
   <div class="brand">
     <a class="brand-home" href="../index.html" aria-label="Home">

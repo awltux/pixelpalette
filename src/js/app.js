@@ -299,6 +299,53 @@
     document.addEventListener('pointercancel', endFineDrag, true);
   }
 
+  /* ---------- offline + update check ---------- */
+  // The build stamps the current commit hash into the Info dialog
+  // (#info-build-hash). We read it back to know which version is running.
+  function currentBuildHash() {
+    const el = document.getElementById('info-build-hash');
+    if (!el) return '';
+    return (el.textContent || '').trim();
+  }
+
+  // Register the service worker (relative to this page) so the single-file app
+  // can be re-opened offline after the first online visit. Runs after load so
+  // it never competes with the first paint; failures (no HTTPS/localhost) are
+  // ignored - the app simply keeps working online.
+  function initServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    global.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .catch(() => { /* offline support unavailable; ignore */ });
+    });
+  }
+
+  // When online, compare the running build against the server's version.json
+  // and offer a reload if a newer build exists. version.json is served fresh
+  // (never cached by the service worker) and is network-only here.
+  function initUpdateCheck() {
+    const banner = document.getElementById('update-banner');
+    if (!banner) return;
+    const reloadBtn = document.getElementById('update-reload');
+    if (reloadBtn) reloadBtn.addEventListener('click', () => { location.reload(); });
+    const cur = currentBuildHash();
+    // A real build is a 7-hex short hash; the source placeholder isn't, so an
+    // unbuilt page skips the check. (No literal token here to keep the bundle clean.)
+    if (!/^[0-9a-f]{7}$/i.test(cur)) return;
+    if (navigator.onLine === false) return;     // only check when online
+    fetch('./version.json?t=' + Date.now(), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((meta) => {
+        if (meta && meta.build && meta.build !== cur) banner.hidden = false;
+      })
+      .catch(() => { /* offline or unreachable: no banner */ });
+  }
+
+  function initOffline() {
+    initServiceWorker();
+    initUpdateCheck();
+  }
+
   /* ---------- first-page splash ---------- */
   // The loader covers the viewport from first paint. Hide it only once boot
   // is complete AND the demo image has actually been drawn (fit() renders via
@@ -318,6 +365,8 @@
   /* ---------- boot ---------- */
   function boot() {
     I18N.apply();
+
+    initOffline();
 
     initConsent();
     initDisclaimer();

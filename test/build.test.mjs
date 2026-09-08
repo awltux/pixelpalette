@@ -74,3 +74,16 @@ test('the inlined JS bundle is syntactically valid', () => {
   // compile without executing (the IIFE bundle is a valid function body)
   assert.doesNotThrow(() => new Function(js));
 });
+
+test('service worker + version probe are emitted and stamped', () => {
+  build(); // regenerate so we read the just-written files
+  const sw = readFileSync(resolve(DIST, 'sw.js'), 'utf8');
+  const ver = JSON.parse(readFileSync(resolve(DIST, 'version.json'), 'utf8'));
+  assert.ok(sw.includes('pixelpalette-') && !sw.includes('__GIT_SHA__'), 'sw.js cache name stamped');
+  assert.ok(!sw.includes('pixelpalette-__GIT_SHA__'), 'sw.js has no placeholder');
+  assert.ok(/^[0-9a-f]{7}$/i.test(ver.build), `version.json has a build hash (got "${ver.build}")`);
+  // the version probe build must match the hash shown in the Info dialog
+  const fresh = readFileSync(OUT, 'utf8');
+  const m = fresh.match(/info-build-hash">([^<]+)<\/span>/);
+  assert.equal(ver.build, m && m[1], 'version.json build matches the Info dialog hash');
+});
