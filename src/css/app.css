@@ -1127,22 +1127,35 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .hud-toggle .hud-toggle-chevron { transition: transform .2s ease; }
 .hud-toggle.is-up .hud-toggle-chevron { transform: rotate(180deg); }
 
-/* minimised: dock collapses to a slim tab holding just the chevron */
+/* minimised: no full-width bar — the HUD collapses to a single floating
+   reveal control pinned to the bottom-right corner, so the canvas is visible
+   all the way across the bottom edge */
 .project-hud.hud-min {
-  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+  left: auto;
+  right: calc(10px + env(safe-area-inset-right, 0px));
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  width: auto;
+  padding: 0;
   gap: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  flex-wrap: nowrap;
 }
 .project-hud.hud-min .hud-group,
 .project-hud.hud-min .hud-exit,
 .project-hud.hud-min .project-status,
 .project-hud.hud-min .hud-sep { display: none; }
-/* keep the "show" chevron in the same right-hand corner as it sits when the
-   dock is expanded, instead of centring it */
+/* the floating reveal control: a solid, tappable chip in the corner */
 .project-hud.hud-min .hud-toggle {
-  margin: 0 0 0 auto;
+  margin: 0;
+  width: 40px; height: 40px;
+  border-radius: 10px;
   border: 1px solid var(--border-strong);
   background: var(--bg-soft);
+  box-shadow: var(--shadow);
 }
+.project-hud.hud-min .hud-toggle:hover { background: var(--panel-2); }
 .project-hud.hud-min .hud-toggle.is-up .hud-toggle-chevron { transform: rotate(180deg); }
 
 /* HUD buttons — consistent, compact */
