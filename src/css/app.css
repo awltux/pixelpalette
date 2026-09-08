@@ -1113,12 +1113,12 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px; height: 30px;
-  margin-left: 6px;
+  width: 40px; height: 32px;
+  margin-left: 14px;   /* breathing room from the Exit button */
   padding: 0;
   background: transparent;
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-dim);
   cursor: pointer;
   transition: background .15s, color .15s, border-color .15s;
