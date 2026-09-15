@@ -117,12 +117,12 @@
   // the rung entirely (it keeps its fixed ±10%). The first rung is deliberately
   // very fine so the last tenth of a percent is reachable by hand.
   // ZOOM's per-swipe steps in SCREEN PIXELS of the rendered image width: a step
-  // is an absolute 1 / 5 / 10 / 20 px of image size, not a percentage. The
-  // finest correction is therefore exactly one screen pixel whatever the image
-  // resolution is. A percentage step would be resolution-dependent, and at the
-  // 1 px end it would not even move a percentage readout - which is why the chip
-  // shows the rendered width instead.
-  const ZOOM_STEPS_PX = [1, 5, 10, 20];
+  // is an absolute pixel count of image size, not a percentage, so it means the
+  // same on-screen nudge at any zoom. The ladder ramps gradually on purpose -
+  // repeated rungs mean a run does not leap from one step size to a much bigger
+  // one, which is what made the earlier 1/5/10/20 ladder feel jumpy. The wheel
+  // of rungs is walked one per same-direction swipe (see SWIPE_REPEAT_MAX).
+  const ZOOM_STEPS_PX = [2, 2, 2, 4, 4, 6, 6];
   const SWIPE_REPEAT_MAX = ZOOM_STEPS_PX.length - 1; // deepest rung a run can reach
   // Alignment band, RELATIVE to the zoom in effect when the dial took over
   // (`alignSeed`), so the guarantee "a stray gesture cannot lose the image"
@@ -787,9 +787,10 @@
   }
 
   /* ZOOM's rung for the current repeat depth: the step is a pixel count, and
-     each rapid repeat climbs one rung (see ZOOM_STEPS_PX). `dir` is +1 for up/
-     right (bigger) and -1 for down/left (smaller); being additive, a step and
-     its inverse cancel exactly. */
+     each same-direction swipe walks one rung up the ladder (see ZOOM_STEPS_PX,
+     which repeats values so the ramp stays gradual). `dir` is +1 for up/right
+     (bigger) and -1 for down/left (smaller); being additive, a step and its
+     inverse cancel exactly. */
   function alignZoomStep(dir, rung) {
     const img = imageInfo();
     if (!img) return;

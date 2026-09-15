@@ -416,14 +416,14 @@ test('repeated same-direction swipes climb the ZOOM rung ladder and then cap', (
   let s = gestureInit();
   const rungs = [];
   let t = 1000;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 9; i++) {
     const r = gestureStep(s, { type: 'swipe', dir: 1, now: t });
     s = r.state;
     rungs.push(host(r.effects[0]).rung);
     t += 10;
   }
-  assert.deepEqual(rungs, [0, 1, 2, 3, 3], 'one rung per rapid swipe, then the cap');
-  assert.equal(host(ZOOM_STEPS_PX).length, rungs[3] + 1, 'the cap is the deepest rung');
+  assert.deepEqual(rungs, [0, 1, 2, 3, 4, 5, 6, 6, 6], 'one rung per swipe, then the cap');
+  assert.equal(host(ZOOM_STEPS_PX).length, rungs[6] + 1, 'the cap is the deepest rung');
   // a pause longer than the repeat window restarts the ladder
   const after = gestureStep(s, { type: 'swipe', dir: 1, now: t + rep + 1 });
   assert.equal(after.effects[0].rung, 0);
@@ -514,13 +514,15 @@ test('a press is inert on the ZOOM stop, so the reset cannot fire by accident', 
   }
 });
 
-test('the ZOOM ladder is a pixel ladder starting at one screen pixel', () => {
+test('the ZOOM ladder is a gradual pixel ladder', () => {
   const { ZOOM_STEPS_PX } = loadTracing();
   const steps = host(ZOOM_STEPS_PX);
-  assert.deepEqual(steps, [1, 5, 10, 20], 'screen px of rendered image width');
-  assert.equal(steps[0], 1, 'the finest correction is exactly one screen pixel');
+  assert.deepEqual(steps, [2, 2, 2, 4, 4, 6, 6], 'screen px of rendered image width');
+  // repeated rungs are deliberate: the ramp must never leap to a much coarser
+  // step, so it is non-decreasing with small increments
   for (let i = 1; i < steps.length; i++) {
-    assert.ok(steps[i] > steps[i - 1], `rung ${i} is coarser than rung ${i - 1}`);
+    assert.ok(steps[i] >= steps[i - 1], `rung ${i} must not be finer than ${i - 1}`);
+    assert.ok(steps[i] - steps[i - 1] <= 2, `rung ${i} leaps by more than 2 px`);
   }
 });
 
