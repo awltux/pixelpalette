@@ -134,7 +134,7 @@ Recent, newest-first:
   swipe left**, so assuming a vertical "down" for "less" leaves the stop
   one-directional on the real hardware. See §11.
 - Constants near the top: `HIDE_TAP_SLOP=12`, `HIDE_TAP_MS=400`, `SWIPE_PX=40`,
-  `SWIPE_ALPHA_STEP=0.1` (OPACITY's step; ZOOM uses `ZOOM_STEPS`).
+  `SWIPE_ALPHA_STEP=0.1` (OPACITY's step; ZOOM uses `ZOOM_STEPS_PX`, in px).
 - Grid spacing while locked: `setGridCell` early-returns if `locked`, and the
   row gets `.is-locked` with `pointer-events:none`.
 - Exit button now opens `#project-exit-confirm` (`openExitConfirm` /
@@ -307,7 +307,7 @@ existing `hideTap` path, **not** as keyboard input.
 | Stop | swipe up / down | press |
 | --- | --- | --- |
 | `OPACITY` (home) | overlay ±10% | peek / restore *(unchanged)* |
-| `ZOOM` | fine image scale (`ZOOM_STEPS` rungs) | **nothing** — deliberately inert |
+| `ZOOM` | fine image scale (`ZOOM_STEPS_PX` rungs) | **nothing** — deliberately inert |
 
 - **Double-press swaps which stop the remote drives** — a role swap, not a long
   carousel walk. The on-screen chip prints both roles and highlights the active
@@ -330,9 +330,13 @@ existing `hideTap` path, **not** as keyboard input.
   self-cancelling, because `peekHide()` is a toggle; two deliberate peeks are
   normally further apart than the window.
 - One completed swipe = one step; consecutive same-direction swipes within
-  `SWIPE_REPEAT_MS` (**3000 ms**) climb the `ZOOM_STEPS` rung ladder — **0.1%,
-  0.5%, 1%, 2%**, finest first, so an isolated swipe is the finest correction and
-  a deliberate run travels. Only ZOOM climbs it; OPACITY keeps its fixed ±10%.
+  `SWIPE_REPEAT_MS` (**3000 ms**) climb the `ZOOM_STEPS_PX` rung ladder — **1, 5,
+  10, 20 screen px of rendered image width**, finest first, so an isolated swipe
+  is a one-pixel correction and a run travels. The unit is an absolute pixel
+  count, not a percentage: that makes the finest step exactly one screen pixel
+  whatever the image resolution, and it is why the chip reads `W {n} px` instead
+  of a percentage (a 1 px step would not move a `100.0%` readout). Only ZOOM
+  climbs the ladder; OPACITY keeps its fixed ±10%.
   The window is long on purpose: **the remote emits one up/down swipe per button
   gesture and turns short intervals between button presses into left/right
   swipes**, so a rapid run of same-direction swipes is impossible — the window
@@ -400,7 +404,7 @@ The dial is live in `src/js/tracing.js`:
 Constants (all in `tracing.js`, all still *guesses* except what the Phase 0 probe
 validates): `DOUBLE_PRESS_MS 300`, `GESTURE_HOME_MS 20000`,
 `SWIPE_REPEAT_MS 3000` (long: the remote cannot fire same-direction swipes
-rapidly), `ZOOM_STEPS [0.001, 0.005, 0.01, 0.02]` (the rung ladder;
+rapidly), `ZOOM_STEPS_PX [1, 5, 10, 20]` (the pixel rung ladder;
 `SWIPE_REPEAT_MAX` is derived from its length), `ALIGN_MIN 0.85` / `ALIGN_MAX 1.30`
 (a band *relative to the seed*, so 0.85–1.30 of wherever the zoom was on Lock),
 `DIAL_HOLD_MS 2000`.

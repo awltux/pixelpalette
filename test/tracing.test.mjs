@@ -411,7 +411,7 @@ test('presses further apart than the window stay two separate presses', () => {
 });
 
 test('repeated same-direction swipes climb the ZOOM rung ladder and then cap', () => {
-  const { gestureInit, gestureStep, GESTURE_TIMING, ZOOM_STEPS } = loadTracing();
+  const { gestureInit, gestureStep, GESTURE_TIMING, ZOOM_STEPS_PX } = loadTracing();
   const rep = GESTURE_TIMING.repeatMs;
   let s = gestureInit();
   const rungs = [];
@@ -423,7 +423,7 @@ test('repeated same-direction swipes climb the ZOOM rung ladder and then cap', (
     t += 10;
   }
   assert.deepEqual(rungs, [0, 1, 2, 3, 3], 'one rung per rapid swipe, then the cap');
-  assert.equal(host(ZOOM_STEPS).length, rungs[3] + 1, 'the cap is the deepest rung');
+  assert.equal(host(ZOOM_STEPS_PX).length, rungs[3] + 1, 'the cap is the deepest rung');
   // a pause longer than the repeat window restarts the ladder
   const after = gestureStep(s, { type: 'swipe', dir: 1, now: t + rep + 1 });
   assert.equal(after.effects[0].rung, 0);
@@ -514,13 +514,38 @@ test('a press is inert on the ZOOM stop, so the reset cannot fire by accident', 
   }
 });
 
-test('the ZOOM ladder starts at a 0.1% step and climbs monotonically', () => {
-  const { ZOOM_STEPS } = loadTracing();
-  const steps = host(ZOOM_STEPS);
-  assert.deepEqual(steps, [0.001, 0.005, 0.01, 0.02], '0.1% / 0.5% / 1% / 2%');
+test('the ZOOM ladder is a pixel ladder starting at one screen pixel', () => {
+  const { ZOOM_STEPS_PX } = loadTracing();
+  const steps = host(ZOOM_STEPS_PX);
+  assert.deepEqual(steps, [1, 5, 10, 20], 'screen px of rendered image width');
+  assert.equal(steps[0], 1, 'the finest correction is exactly one screen pixel');
   for (let i = 1; i < steps.length; i++) {
     assert.ok(steps[i] > steps[i - 1], `rung ${i} is coarser than rung ${i - 1}`);
   }
+});
+
+test('a ZOOM step changes the rendered image width by exactly that many px', () => {
+  const { alignStepDelta, ZOOM_STEPS_PX } = loadTracing();
+  const steps = host(ZOOM_STEPS_PX);
+  const imgW = 1600, base = 0.5;
+  // rendered width = imgW * base * alignScale, so this delta must move it by
+  // exactly one rung's worth of screen px, in either direction and at any zoom
+  for (const px of steps) {
+    for (const dir of [1, -1]) {
+      const d = alignStepDelta(px, dir, imgW, base);
+      assert.ok(Math.abs(imgW * base * d - dir * px) < 1e-9,
+        `${px}px step, dir ${dir}: moved ${imgW * base * d}`);
+    }
+  }
+  // the step is an absolute pixel count, not a ratio: doubling the zoom halves
+  // the alignScale delta for the same on-screen nudge
+  const atFit = alignStepDelta(1, 1, imgW, 1);
+  const zoomed = alignStepDelta(1, 1, imgW, 2);
+  assert.ok(Math.abs(atFit - 2 * zoomed) < 1e-12);
+  // up then down cancels exactly, and degenerate input is inert rather than NaN
+  assert.equal(alignStepDelta(1, 1, imgW, base) + alignStepDelta(1, -1, imgW, base), 0);
+  assert.equal(alignStepDelta(1, 1, 0, base), 0);
+  assert.equal(alignStepDelta(1, 1, imgW, 0), 0);
 });
 
 test('a swipe cancels a deferred press, because a drag is not a tap', () => {

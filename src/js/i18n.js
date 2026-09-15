@@ -65,7 +65,7 @@
       traceExitCancel: 'Cancel',
       dialOpacity: 'Opacity',
       dialZoom: 'Zoom',
-      dialZoomValue: '{n}%',
+      dialZoomWidth: 'W {n} px',
       dialSwipeOpacity: 'swipe: opacity \u00b1 10%',
       dialSwipeZoom: 'swipe: fine zoom',
       dialPressOpacity: 'press: peek',

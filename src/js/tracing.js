@@ -116,8 +116,14 @@
   // finest correction, and each rapid repeat moves up a rung. OPACITY ignores
   // the rung entirely (it keeps its fixed ±10%). The first rung is deliberately
   // very fine so the last tenth of a percent is reachable by hand.
-  const ZOOM_STEPS = [0.001, 0.005, 0.010, 0.020]; // 0.1%, 0.5%, 1%, 2%
-  const SWIPE_REPEAT_MAX = ZOOM_STEPS.length - 1;  // deepest rung a run can reach
+  // ZOOM's per-swipe steps in SCREEN PIXELS of the rendered image width: a step
+  // is an absolute 1 / 5 / 10 / 20 px of image size, not a percentage. The
+  // finest correction is therefore exactly one screen pixel whatever the image
+  // resolution is. A percentage step would be resolution-dependent, and at the
+  // 1 px end it would not even move a percentage readout - which is why the chip
+  // shows the rendered width instead.
+  const ZOOM_STEPS_PX = [1, 5, 10, 20];
+  const SWIPE_REPEAT_MAX = ZOOM_STEPS_PX.length - 1; // deepest rung a run can reach
   // Alignment band, RELATIVE to the zoom in effect when the dial took over
   // (`alignSeed`), so the guarantee "a stray gesture cannot lose the image"
   // holds whatever the unlocked pinch-zoom left behind. With the usual seed of 1
@@ -712,9 +718,7 @@
   function applyAlign(recentre) {
     const img = imageInfo();
     if (!img) { requestRender(); return; }
-    const f = computeFit(img.width, img.height, cssW, cssH, 24);
-    const base = Math.max(0.05, Math.min(4, f.scale));
-    const next = alignView(view, clampScale(base * alignScale), recentre, img.width, img.height);
+    const next = alignView(view, clampScale(alignBaseScale() * alignScale), recentre, img.width, img.height);
     view.scale = next.scale;
     view.cx = next.cx;
     view.cy = next.cy;
@@ -766,12 +770,38 @@
     alignSeed = cur;
   }
 
-  /* ZOOM's rung for the current repeat depth: an isolated swipe is the finest
-     step, and each rapid repeat climbs one rung (see ZOOM_STEPS). `dir` is +1
-     for up / -1 for down, applied as a power so in/out are exact inverses. */
+  /* The scale a plain fit would use right now (css px per image px). */
+  function alignBaseScale() {
+    const img = imageInfo();
+    if (!img) return 1;
+    const f = computeFit(img.width, img.height, cssW, cssH, 24);
+    return Math.max(0.05, Math.min(4, f.scale));
+  }
+
+  /* The `alignScale` delta that changes the rendered image WIDTH by `px` screen
+     px: rendered width = imgW * base * alignScale, so the same pixel step means
+     the same on-screen nudge at any zoom. Degenerate input is inert, never NaN. */
+  function alignStepDelta(px, dir, imgW, base) {
+    if (!(imgW > 0) || !(base > 0) || !isFinite(px)) return 0;
+    return (dir * px / imgW) / base;
+  }
+
+  /* ZOOM's rung for the current repeat depth: the step is a pixel count, and
+     each rapid repeat climbs one rung (see ZOOM_STEPS_PX). `dir` is +1 for up/
+     right (bigger) and -1 for down/left (smaller); being additive, a step and
+     its inverse cancel exactly. */
   function alignZoomStep(dir, rung) {
-    const i = Math.max(0, Math.min(ZOOM_STEPS.length - 1, Math.round(rung) || 0));
-    setAlignScale(alignScale * Math.pow(1 + ZOOM_STEPS[i], dir));
+    const img = imageInfo();
+    if (!img) return;
+    const i = Math.max(0, Math.min(ZOOM_STEPS_PX.length - 1, Math.round(rung) || 0));
+    setAlignScale(alignScale + alignStepDelta(ZOOM_STEPS_PX[i], dir, img.width, alignBaseScale()));
+  }
+
+  /* The image's rendered width in css px - the unit the ZOOM stop works in. */
+  function renderedWidth() {
+    const img = imageInfo();
+    if (!img) return 0;
+    return Math.round(img.width * view.scale);
   }
 
   /* Reset the alignment (and the pan) to a plain fit. Deliberately reachable
@@ -2663,7 +2693,7 @@
     if (els.dialStopZ) els.dialStopZ.classList.toggle('is-on', zoom);
     if (els.dialValue) {
       els.dialValue.textContent = zoom
-        ? I18N.t('dialZoomValue', { n: (alignScale * 100).toFixed(1) })
+        ? I18N.t('dialZoomWidth', { n: renderedWidth() })
         : Math.round(alpha * 100) + '%';
     }
     if (els.dialHint) {
@@ -3124,8 +3154,9 @@
       luminanceOf, boxBlur, makeLineDrawing, lineDrawingFromGray, keyWhiteToAlpha,
       computeHomography, invert3, applyHomography,
       splitFeedZoom,
-      gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS,
-      STOP_PRESS, alignBand, clampAlign, alignView, swipeAxis, swipeStep,
+      gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS_PX,
+      STOP_PRESS, alignBand, clampAlign, alignView, alignStepDelta,
+      swipeAxis, swipeStep,
     },
   };
 
