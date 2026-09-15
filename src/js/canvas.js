@@ -87,7 +87,11 @@
       ctx.translate(cssW / 2, cssH / 2);
       ctx.scale(s.scale, s.scale);
       ctx.translate(-s.cx, -s.cy);
-      ctx.drawImage(img.canvas, 0, 0);
+      // the Levels view (when on) replaces the pixels drawn, but never the
+      // source: the reticle, magnifier and history all read state.image.canvas
+      const levels = global.CP.Levels;
+      const base = (levels && levels.isOn()) ? levels.view(img) : null;
+      ctx.drawImage(base || img.canvas, 0, 0);
       ctx.restore();
     }
     global.CP.Reticle.draw(ctx, cssW, cssH);
@@ -265,6 +269,7 @@
     zoomAt,
     setImage(imgCanvas, w, h) {
       getState().image = { canvas: imgCanvas, width: w, height: h };
+      if (global.CP.Levels) global.CP.Levels.invalidate(); // cached zone pass
       fit();
     },
     getView: () => getState().view,

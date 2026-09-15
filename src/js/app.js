@@ -438,6 +438,7 @@
     initDisclaimer();
     global.CP.ImageLoader.init();
     global.CP.Canvas.init();
+    global.CP.Levels.init();
     global.CP.Reticle.init();
     global.CP.Readout.init();
     global.CP.History.init();

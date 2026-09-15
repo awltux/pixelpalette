@@ -226,6 +226,12 @@ wrong probe.
   `dist/index.html` inside the test** (the new SW/version test does this).
 - Sandbox/`child_process` output capture is blocked (EPERM); see §4.
 - CRLF warnings from git on every `add` are benign (LF in working copy).
+- **Adding a `src/js/` file needs more than one edit.** The build takes the load
+  order from `src/index.html`, so the file needs its `<script>` tag there *and*
+  a matching entry in the `ORDER` array in `test/smoke.test.mjs`, which asserts
+  the two agree exactly (and that each module registers its `CP.*` global). Miss
+  the test entry and the suite fails; get the order wrong and a module loads too
+  late at runtime only.
 - The repo's `README.md` is slightly stale: it says `npm run host` serves 8080
   (true for direct `node scripts/host.mjs`), but `host.cmd` uses **8081**; it
   also predates `sw.js`/`version.json`/offline support and this file.
@@ -245,7 +251,7 @@ wrong probe.
 ## 8. Verification checklist before saying "done"
 
 ```sh
-npm run build     # must exit 0, "Built … (… KB, 20 JS files inlined …)"
+npm run build     # must exit 0, "Built … (… KB, 21 JS files inlined …)"
 npm test          # expect 125 pass, 0 fail
 ```
 
@@ -282,6 +288,7 @@ Select-String -Path dist/index.html,dist/sw.js -Pattern '__GIT_SHA__'   # expect
 ```
 src/sw.js                 Offline service worker (hash-stamped by the build)
 src/js/app.js             Boot; initOffline() (SW registration + update banner)
+src/js/levels.js          Levels: display-only tonal-zone view (§12)
 src/js/tracing.js         Projection/tracing: the most complex module
                           (also the Phase 0 gesture probe + gesture dial — §11)
 src/js/mix-ui.js          Mix panel + mobile "Show mix" result bar toggle
@@ -475,3 +482,33 @@ from the readings, then delete the probe: it is one contiguous function block
 plus a handful of clearly-marked `gdbg*()` hook calls. It adds no `<style>` tag
 (inline styles from JS — the build test asserts exactly two) and reads
 `global.location` defensively, because the test vm sandbox has no `location`.
+
+## 12. Levels (tonal-zone view)
+
+`src/js/levels.js` plus a checkbox and a marked 5-step slider beside the Soften
+slider in the toolbar (`#levels-on`, `#levels-band`, `#levels-band-name`, and
+`#levels-controls`; a `<datalist>` gives the range input its five tick marks).
+
+- **Unticked** (default): the plain image, exactly as before.
+- **Ticked**: every pixel is posterised to the flat tone of its zone
+  (`ZONE_GREY`, a dark→light ramp), and the zone selected on the slider is
+  painted in one saturated highlight colour (`HILITE`). The slider steps through
+  **five even windows** of Rec.601 luminance (`zoneOf`: 0–0.2, 0.2–0.4, … 0.8–1),
+  named Shadows → Highlights in i18n (`levelZone1..5`).
+- **Why a flat ramp *and* a colour highlight**: no neutral backdrop can contrast
+  with all five zones — mid grey behind the mid zone is invisible, and black
+  behind the shadow zone is too — so the selected window is marked by *colour*,
+  which reads at every point in the ramp.
+- **Display-only by construction**: `canvas.js` swaps the pixels it *draws*
+  (`Levels.view(img)`), while `CP.state.image.canvas` is untouched. The reticle,
+  the magnifier, colour picking, history and the projected / line-art views all
+  keep reading the real image. This is the same rule the soften blur follows.
+- The pass is O(pixels) and cached per (source canvas, band); `Canvas.setImage`
+  calls `Levels.invalidate()`. A canvas that cannot be read back (a cross-origin
+  image without CORS) disables the view once instead of throwing every frame.
+- Prefs: `pp.levels` (`{on, band}`). Pure parts `zoneOf` / `zoneView` are in
+  `__internal` and covered by `test/levels.test.mjs`.
+
+Two honest limits: the base posterisation hides structure *within* a zone, so
+untick the box to see the real image; and the magnifier always shows true
+colours, so the loupe and the zone view will disagree while Levels is on.

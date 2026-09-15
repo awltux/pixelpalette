@@ -226,6 +226,23 @@ body {
 .toolbar-slider { display: inline-flex; align-items: center; gap: 6px; }
 .toolbar-slider-label { font-size: .78rem; color: var(--text-dim); white-space: nowrap; }
 .toolbar-slider input[type="range"] { width: 110px; margin: 0; }
+
+/* Levels: the tonal-zone view toggle plus its 5-window slider. The slider is
+   marked in five steps by a <datalist> (native ticks); the zone name beside it
+   says which window is being shown. */
+.toolbar-levels { display: inline-flex; align-items: center; gap: 10px; }
+.toolbar-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.toolbar-check input[type="checkbox"] {
+  width: 15px; height: 15px; margin: 0;
+  accent-color: var(--accent); cursor: pointer;
+}
+.toolbar-levels .toolbar-slider input[type="range"] { width: 84px; }
+.toolbar-levels .levels-band-name {
+  min-width: 4.6em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.toolbar-levels.is-off .levels-band-name { color: var(--text-dim); }
 .toolbar-check { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
 .toolbar-check input { margin: 0; accent-color: var(--accent); }
 .hint { margin-left: auto; font-size: .78rem; color: var(--text-dim); }

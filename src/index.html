@@ -192,6 +192,28 @@ Google Search Console verification: paste the meta tag here after adding the sit
         <span class="toolbar-slider-label" data-i18n="btnSoften">Soften</span>
         <input type="range" id="soften-radius" min="0" max="24" step="1" value="0">
       </label>
+      <span class="toolbar-sep" aria-hidden="true"></span>
+      <!-- Levels: a display-only tonal-zone view (js/levels.js). The slider steps
+           through five even windows of the image's luminance range and the
+           selected window is highlighted in the view, so the artist can find the
+           dark, mid and light masses. Unticked = the plain image. -->
+      <div class="toolbar-levels" id="levels-controls">
+        <label class="toolbar-check" data-i18n-attr="title:levelsHelp">
+          <input type="checkbox" id="levels-on">
+          <span class="toolbar-slider-label" data-i18n="btnLevels">Levels</span>
+        </label>
+        <label class="toolbar-slider" data-i18n-attr="aria-label:levelsBand">
+          <input type="range" id="levels-band" min="1" max="5" step="1" value="3" list="levels-ticks">
+          <span class="toolbar-slider-label levels-band-name" id="levels-band-name"></span>
+        </label>
+      </div>
+      <datalist id="levels-ticks">
+        <option value="1"></option>
+        <option value="2"></option>
+        <option value="3"></option>
+        <option value="4"></option>
+        <option value="5"></option>
+      </datalist>
       <span class="hint" data-i18n="canvasHint">Drag to pan · scroll / pinch to zoom · arrow keys nudge</span>
     </div>
 
@@ -834,6 +856,7 @@ Google Search Console verification: paste the meta tag here after adding the sit
 <script src="js/demo-image.js"></script>
 <script src="js/image-loader.js"></script>
 <script src="js/canvas.js"></script>
+<script src="js/levels.js"></script>
 <script src="js/reticle.js"></script>
 <script src="js/readout.js"></script>
 <script src="js/mixing.js"></script>

@@ -29,6 +29,7 @@ const ORDER = [
   'demo-image.js',
   'image-loader.js',
   'canvas.js',
+  'levels.js',
   'reticle.js',
   'readout.js',
   'mixing.js',
@@ -61,7 +62,7 @@ test('expected globals are registered after load', () => {
   assert.equal(typeof w.Palettes, 'object');
   assert.equal(typeof w.DemoImage.generate, 'function');
   assert.equal(typeof w.CP, 'object');
-  for (const mod of ['Canvas', 'Reticle', 'Readout', 'MixUI', 'Gamut', 'GamutFilter', 'History', 'PaletteEditor', 'FitPalette', 'Tutorial', 'Consent', 'Disclaimer', 'ImageLoader']) {
+  for (const mod of ['Canvas', 'Levels', 'Reticle', 'Readout', 'MixUI', 'Gamut', 'GamutFilter', 'History', 'PaletteEditor', 'FitPalette', 'Tutorial', 'Consent', 'Disclaimer', 'ImageLoader']) {
     assert.ok(w.CP[mod], `CP.${mod}`);
   }
   assert.equal(typeof w.CP.Tracing, 'object', 'CP.Tracing');
