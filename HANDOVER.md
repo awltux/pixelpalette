@@ -24,10 +24,17 @@ art, greyscale and surface pinning (simplified AR).
 
 ```sh
 npm run build        # build dist/ (Node only, zero deps)
-npm test             # full suite: node --test --test-isolation=none  (currently 118 pass)
+npm test             # full suite: node --test --test-isolation=none  (currently 125 pass)
 npm run host         # serve dist/ (defaults 8080 if run directly)
 npm run build:watch  # rebuild on src/ changes
+npm run dev          # build:watch + host together (hosts 8081; PORT= to change)
 ```
+
+There is **no dev server and no bundler** to run — the sources are plain-script
+IIFEs, so `npm run dev` is just the watch build plus the static host. There is no
+browser auto-reload either, and the service worker serves the cached shell, so
+while developing keep "Update on reload" (or bypass for network) enabled in
+DevTools or you will keep seeing the old bundle (§6).
 
 Windows wrappers exist: `build.cmd`, `test.cmd`, `host.cmd`. **`host.cmd`
 defaults to port 8081** (to avoid clashing with other local servers on 8080),
@@ -169,6 +176,11 @@ server the banner offers a manual reload. **Not covered by automated tests.**
   `dist/index.html`, and `test/build.test.mjs` asserts no placeholder remains.
   `app.js` avoids this by validating the hash **shape**
   (`/^[0-9a-f]{7}$/i`) instead of comparing to the token.
+- **The same trap applies to the literal `<style>` in `src/js/`** — even inside
+  a JS comment. It is inlined into the bundle and `test/build.test.mjs` counts
+  `<style>` occurrences (exactly 2 expected), so a comment that merely mentions
+  one fails the whole suite. Write "style element" instead. (Bit us in the
+  Phase 0 gesture probe; §11.)
 - `test/build.test.mjs` reads a module-level `html` snapshot at import time.
   When adding tests that depend on freshly-built output, **re-read
   `dist/index.html` inside the test** (the new SW/version test does this).
@@ -185,7 +197,7 @@ server the banner offers a manual reload. **Not covered by automated tests.**
 
 ```sh
 npm run build     # must exit 0, "Built … (… KB, 20 JS files inlined …)"
-npm test          # expect 118 pass, 0 fail
+npm test          # expect 125 pass, 0 fail
 ```
 
 Then spot-check `dist/` contains `index.html`, `sw.js`, `version.json`,
@@ -197,6 +209,9 @@ Select-String -Path dist/index.html,dist/sw.js -Pattern '__GIT_SHA__'   # expect
 
 ## 9. Suggested next steps
 
+- **Gesture mode dial** — Phase 0 probe + Phase 1 dial are built; the AR
+  ("map to surface") stop list is not. Read §11 before touching the locked-gesture
+  code.
 - **Update `README.md`** to mention `sw.js`/`version.json`/offline support, the
   8081 default for `host.cmd`, and this HANDOVER file.
 - **Push `master`** (14 unpushed commits) — confirm with the human first; do not
@@ -219,6 +234,7 @@ Select-String -Path dist/index.html,dist/sw.js -Pattern '__GIT_SHA__'   # expect
 src/sw.js                 Offline service worker (hash-stamped by the build)
 src/js/app.js             Boot; initOffline() (SW registration + update banner)
 src/js/tracing.js         Projection/tracing: the most complex module
+                          (also the Phase 0 gesture probe + gesture dial — §11)
 src/js/mix-ui.js          Mix panel + mobile "Show mix" result bar toggle
 src/js/i18n.js            English string table (single locale)
 src/index.html            App shell, all modals, update banner, tracing HUD
@@ -226,3 +242,143 @@ scripts/build.mjs         Bundler; hash stamping; emits sw.js + version.json
 scripts/host.mjs          Static host for dist/ (correct MIME types)
 test/build.test.mjs       Bundle + SW/version assertions
 ```
+
+## 11. Gesture mode dial (Phase 0 + Phase 1 built; AR stop list NOT built)
+
+**Why:** the gooseneck mount lets the camera droop slowly towards the paper, so
+the feed effectively zooms in and the overlay drifts out of alignment. Touching
+the screen to correct it wobbles the mount and makes it worse — so the
+correction has to come from the Bluetooth "remote". That remote physically
+taps/swipes the screen, so its gestures arrive as ordinary pointer events on the
+existing `hideTap` path, **not** as keyboard input.
+
+**Agreed shape:** a two-stop mode dial over the projection surface, active while
+`locked && arMode === 'off'` (the same gate today's gestures use).
+
+| Stop | swipe up / down | press |
+| --- | --- | --- |
+| `OPACITY` (home) | overlay ±10% | peek / restore *(unchanged)* |
+| `ZOOM` | fine image scale, ±0.5% | reset to fit |
+
+- **Double-press swaps which stop the remote drives** — a role swap, not a long
+  carousel walk. The on-screen chip prints both roles and highlights the active
+  one, so what the remote will do is never guessed.
+- Press is *not* mode-specific everywhere: peek keeps press on `OPACITY`, the
+  adjust stop gets reset. (Decided with the user.)
+- A double press defers the single-press action by `DOUBLE_PRESS_MS` (~300) so a
+  deliberate double press can't fire two peeks. A *stray* double press is
+  self-cancelling, because `peekHide()` is a toggle; two deliberate peeks are
+  normally further apart than the window.
+- One completed swipe = one step; consecutive same-direction swipes within
+  `SWIPE_REPEAT_MS` (600 ms) climb the `ZOOM_STEPS` rung ladder — **0.1%, 0.5%,
+  1%, 2%**, finest first, so an isolated swipe is the finest correction and a
+  rapid run travels. Only ZOOM climbs it; OPACITY keeps its fixed ±10%. The
+  remote's swipe *length* is fixed by the hardware, so length-based coarse/fine
+  is unusable; repeat does the job, and the short window means the ladder only
+  engages on a deliberate rapid run.
+- **Auto-home** to `OPACITY` after ~20 s idle, so a stray swipe does the
+  harmless thing. Every gesture persists to prefs, which is why this matters.
+- Tight zoom range (~0.85–1.30) so a stray gesture cannot lose the image.
+- Use **image** zoom, not feed zoom: `feedZoomAt` clamps `feedS >= 1`, so the
+  camera layer can only scale *up* and can never undo a droop.
+- No SHIFT/offset stops: the paper is moved by hand. That leaves only *scale*
+  for the app to fix, because a hand cannot shrink the paper.
+
+### Built (Phase 1)
+
+The dial is live in `src/js/tracing.js`:
+
+- `gestureStep(state, event)` / `gestureInit()` — the **pure** state machine,
+  exported via `__internal` and covered by 7 tests in `test/tracing.test.mjs`
+  (deferral, double-press swap, wrap, repeat acceleration, swipe-cancels-press,
+  auto-home).
+- `gestureContext()` returns `'flat'` when `active && locked && arMode === 'off'`
+  and `null` otherwise; when it is null the chip is hidden and gestures are
+  dropped. It is the single place that decides which stop list is live.
+- Hooks: `onLockedEnd` now feeds `gestureApply({type:'press'|'swipe'})` instead
+  of calling `peekHide()` / `setAlpha()` directly. Ticks come from
+  `gestureSchedule()`, armed **only** while a deferred press or an auto-home is
+  outstanding — there is no polling loop.
+- `alignScale` (persisted as `align` in `PREF_KEY`) is the fine alignment zoom.
+  `applyAlign()` recomputes the fit base from the current viewport every time, so
+  a rotation cannot leave a stale base; at the default `alignScale = 1` it is
+  byte-identical to the old `fit()`. `fitReset()` (align 1 + refit) is what the
+  **Fit image** button and ZOOM's press action both call.
+- Chip: `#project-dial` in `src/index.html`, `.project-dial` in `app.css`,
+  strings in `i18n.js`. It is `pointer-events: none`, so it can never steal a
+  gesture and needed **no** `overHud` change. It expands for `DIAL_HOLD_MS` after
+  a gesture, then falls back to the compact `OPACITY / ZOOM 108.4%` form.
+- **OPACITY keeps its fixed ±10% step** (`mult` only accelerates ZOOM), so the
+  pre-existing gesture behaviour is unchanged.
+
+Constants (all in `tracing.js`, all still *guesses* except what the Phase 0 probe
+validates): `DOUBLE_PRESS_MS 300`, `GESTURE_HOME_MS 20000`,
+`SWIPE_REPEAT_MS 600`, `ZOOM_STEPS [0.001, 0.005, 0.01, 0.02]` (the rung ladder;
+`SWIPE_REPEAT_MAX` is derived from its length), `ALIGN_MIN 0.85`,
+`ALIGN_MAX 1.30`, `DIAL_HOLD_MS 2000`.
+
+### Decisions already taken so a later "adjust the pins" stop fits
+
+Requested by the user, **not built yet**: fine pin adjustment while in
+"map to surface" (`arMode === 'on'`, `arEdit`).
+
+1. **Stops are a registry (data)** — each `{ id, labelKey, group, available(),
+   value(), format(), step(dir, mult), press(), pressLabelKey, min(), max() }`,
+   with `activeStops()` filtering by context. New stops become new entries, not
+   new gesture code.
+2. **One predicate owns the pointer**: `gestureContext() → 'flat' | 'map' |
+   null`, replacing the repeated `locked && arMode === 'off'` gates in
+   `startLockedGesture` / `onPointerDown`. This preserves the invariant that
+   makes the surface wobble-proof: exactly one handler owns the pointer.
+3. **Selection lives above the pointer**: `gestureSel = { stopIndex,
+   targetIndex }`, reset to that context's home stop whenever `arMode` changes.
+   A stop may declare `targets()`.
+4. **Create the pin-move seam `arMovePin(idx, dx, dy)`**, extracted from
+   `arAdjustMove` (canvas clamp → `computeHomography(arSrc, cand)` → reject
+   degenerate → write `arDst`/`arH` → `requestRender()` → `arQueueWarp()`). The
+   existing drag path must call it too, or the two paths will diverge.
+5. **Pin *selection*, not a live pointer, must drive the split loupe.**
+   `arAdjustLoupeOnStart`'s tick bails on `arDragIdx < 0`, so a gesture-selected
+   pin would lose its loupe between gestures. Also mark the selected pin in
+   `drawPinMarker` (all four look identical today).
+6. Press action stays per stop (`peek` | `reset` | `undo`); `undo` suits a
+   hand-placed pin better than `reset`.
+7. **Keep each context's flattened stop list at 2–4 entries.** The small-step
+   property is *why* the dial feels intuitive, and per-pin adjustment is what
+   threatens it.
+
+**Open fork (decide when building it).** Per-pin × per-axis is 4 pins × 2 axes
+= 8 cells → up to 8 double presses, which breaks (7). Either:
+
+- **(A, recommended)** gesture-adjust the warp **globally**: scale all four
+  `arDst` about their centroid. One parameter, so it fits the dial unmodified,
+  and a droop *is* a global scale change; keystone/per-pin correction stays the
+  existing deliberate touch-based adjust. Or
+- **(B)** per-pin: then a target dimension is unavoidable — either 8 flattened
+  cells, or a second selector gesture (press-and-hold to cycle pins) *if* the
+  remote supports holding. The Phase 0 probe can answer that.
+
+Also: `loadPrefs` never restores `arDst`, so pin edits are session-only today.
+If pin adjustment becomes gesture-cheap, persist the map too.
+
+### Phase 0 gesture probe (temporary — delete once the constants are tuned)
+
+`src/js/tracing.js` has a `GESTURE_DEBUG` block enabled **only** by adding
+`?gdebug=1` to the page URL. It draws a small panel at the top-left of the
+projection surface reporting, for the gestures actually made:
+
+- `tap` — count, last duration, min/max duration vs `HIDE_TAP_MS`
+- `swip` — count, last/peak travel vs `SWIPE_PX`
+- `dbl` — count, last and minimum press-to-press gap vs `DOUBLE_PRESS_MS`
+- the last few gestures: kind, `dur`, `tr`, `peak`, `dxy`, `dStart`, plus why a
+  press did nothing (e.g. `dur 520>400 (raise HIDE_TAP_MS)`)
+- `IGNORED …` for pointer-downs the gesture layer deliberately drops (over the
+  HUD, lock off, AR pinning active)
+
+It exists because `HIDE_TAP_MS = 400` and `SWIPE_PX = 40` were tuned for a
+*finger*; a mechanical tapper is slower and has a fixed throw, so today it may
+silently do nothing at all. Set those constants (and the double-press window)
+from the readings, then delete the probe: it is one contiguous function block
+plus a handful of clearly-marked `gdbg*()` hook calls. It adds no `<style>` tag
+(inline styles from JS — the build test asserts exactly two) and reads
+`global.location` defensively, because the test vm sandbox has no `location`.

@@ -658,6 +658,18 @@ Google Search Console verification: paste the meta tag here after adding the sit
   <video class="project-video" id="project-video" autoplay playsinline muted></video>
   <canvas class="project-canvas" id="project-canvas" tabindex="0" aria-label="Projected image over camera"></canvas>
 
+  <!-- Gesture dial: the only controls while the image is locked (the Bluetooth
+       remote's press/swipe drive the highlighted stop; a double press swaps the
+       stop). Display-only, so it can never steal a gesture. See HANDOVER §11. -->
+  <div class="project-dial" id="project-dial" hidden>
+    <div class="dial-stops">
+      <span class="dial-stop" id="dial-stop-opacity" data-i18n="dialOpacity">Opacity</span>
+      <span class="dial-stop" id="dial-stop-zoom" data-i18n="dialZoom">Zoom</span>
+      <span class="dial-value" id="dial-value">100%</span>
+    </div>
+    <div class="dial-hint" id="dial-hint"></div>
+  </div>
+
   <div class="project-hud" id="project-hud" role="toolbar" aria-label="Projection controls">
     <div class="project-status" id="project-status" role="status"></div>
 

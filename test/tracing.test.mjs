@@ -349,6 +349,125 @@ test('splitFeedZoom preserves total = sensor * css', () => {
   }
 });
 
+/* ---------- gesture mode dial (pure state machine) ----------
+   The locked projection surface has no reachable buttons: a Bluetooth remote
+   taps/swipes the screen and the dial decides what those gestures mean. The
+   decision logic is pure so it can be pinned down here. */
+
+test('a single press is deferred until the double-press window closes', () => {
+  const { gestureInit, gestureStep, GESTURE_TIMING } = loadTracing();
+  const dbl = GESTURE_TIMING.doublePressMs;
+  let r = gestureStep(gestureInit(), { type: 'press', now: 1000 });
+  assert.equal(r.effects.length, 0, 'nothing fires while the window is open');
+  assert.ok(r.state.pending, 'the press is held');
+  r = gestureStep(r.state, { type: 'tick', now: 1000 + dbl - 1 });
+  assert.equal(r.effects.length, 0, 'still inside the window');
+  r = gestureStep(r.state, { type: 'tick', now: 1000 + dbl + 1 });
+  assert.equal(r.effects.length, 1);
+  assert.equal(r.effects[0].kind, 'press');
+  assert.equal(r.effects[0].stop, 'opacity', 'the home stop is the default');
+});
+
+test('a second press inside the window swaps the stop instead of peeking', () => {
+  const { gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING } = loadTracing();
+  const dbl = GESTURE_TIMING.doublePressMs;
+  let r = gestureStep(gestureInit(), { type: 'press', now: 1000 });
+  r = gestureStep(r.state, { type: 'press', now: 1000 + dbl });
+  assert.equal(r.effects.length, 1);
+  assert.equal(r.effects[0].kind, 'stop', 'the dial moves, no peek fires');
+  assert.equal(r.state.stop, 1);
+  // the swallowed press never fires afterwards
+  const t = gestureStep(r.state, { type: 'tick', now: 1000 + dbl + 5000 });
+  assert.equal(t.effects.length, 0);
+  // and the next press acts on the newly selected stop
+  const p = gestureStep(t.state, { type: 'press', now: 20000 });
+  const f = gestureStep(p.state, { type: 'tick', now: 20000 + dbl + 1 });
+  assert.equal(f.effects[0].kind, 'press');
+  assert.equal(f.effects[0].stop, GESTURE_STOPS[1]);
+});
+
+test('the two-stop dial wraps back to the home stop', () => {
+  const { gestureInit, gestureStep, GESTURE_STOPS } = loadTracing();
+  assert.equal(GESTURE_STOPS.length, 2, 'opacity + zoom');
+  let s = gestureStep(gestureInit(), { type: 'press', now: 0 }).state;
+  s = gestureStep(s, { type: 'press', now: 100 }).state;
+  assert.equal(s.stop, 1);
+  s = gestureStep(s, { type: 'press', now: 200 }).state;
+  s = gestureStep(s, { type: 'press', now: 300 }).state;
+  assert.equal(s.stop, 0, 'wraps around');
+});
+
+test('presses further apart than the window stay two separate presses', () => {
+  const { gestureInit, gestureStep, GESTURE_TIMING } = loadTracing();
+  const dbl = GESTURE_TIMING.doublePressMs;
+  let s = gestureStep(gestureInit(), { type: 'press', now: 1000 }).state;
+  const first = gestureStep(s, { type: 'tick', now: 1000 + dbl + 1 });
+  assert.equal(first.effects[0].kind, 'press');
+  const second = gestureStep(first.state, { type: 'press', now: 2000 + dbl });
+  assert.equal(second.effects.length, 0, 'held for its own window');
+  const flush = gestureStep(second.state, { type: 'tick', now: 2000 + 2 * dbl + 1 });
+  assert.equal(flush.effects[0].kind, 'press');
+  assert.equal(flush.state.stop, 0, 'the stop never moved');
+});
+
+test('repeated same-direction swipes climb the ZOOM rung ladder and then cap', () => {
+  const { gestureInit, gestureStep, GESTURE_TIMING, ZOOM_STEPS } = loadTracing();
+  const rep = GESTURE_TIMING.repeatMs;
+  let s = gestureInit();
+  const rungs = [];
+  let t = 1000;
+  for (let i = 0; i < 5; i++) {
+    const r = gestureStep(s, { type: 'swipe', dir: 1, now: t });
+    s = r.state;
+    rungs.push(host(r.effects[0]).rung);
+    t += 10;
+  }
+  assert.deepEqual(rungs, [0, 1, 2, 3, 3], 'one rung per rapid swipe, then the cap');
+  assert.equal(host(ZOOM_STEPS).length, rungs[3] + 1, 'the cap is the deepest rung');
+  // a pause longer than the repeat window restarts the ladder
+  const after = gestureStep(s, { type: 'swipe', dir: 1, now: t + rep + 1 });
+  assert.equal(after.effects[0].rung, 0);
+  // reversing direction restarts it too
+  const back = gestureStep(after.state, { type: 'swipe', dir: -1, now: t + rep + 20 });
+  assert.equal(back.effects[0].rung, 0);
+  assert.equal(back.effects[0].dir, -1);
+});
+
+test('the ZOOM ladder starts at a 0.1% step and climbs monotonically', () => {
+  const { ZOOM_STEPS } = loadTracing();
+  const steps = host(ZOOM_STEPS);
+  assert.deepEqual(steps, [0.001, 0.005, 0.01, 0.02], '0.1% / 0.5% / 1% / 2%');
+  for (let i = 1; i < steps.length; i++) {
+    assert.ok(steps[i] > steps[i - 1], `rung ${i} is coarser than rung ${i - 1}`);
+  }
+});
+
+test('a swipe cancels a deferred press, because a drag is not a tap', () => {
+  const { gestureInit, gestureStep, GESTURE_TIMING } = loadTracing();
+  let s = gestureStep(gestureInit(), { type: 'press', now: 1000 }).state;
+  assert.ok(s.pending);
+  const sw = gestureStep(s, { type: 'swipe', dir: 1, now: 1100 });
+  assert.equal(sw.effects.length, 1);
+  assert.equal(sw.effects[0].kind, 'step');
+  assert.equal(sw.state.pending, null);
+  const t = gestureStep(sw.state, { type: 'tick', now: 1100 + GESTURE_TIMING.doublePressMs + 1 });
+  assert.equal(t.effects.length, 0, 'no peek fires');
+});
+
+test('the dial returns to the home stop after the idle window', () => {
+  const { gestureInit, gestureStep, GESTURE_TIMING } = loadTracing();
+  const dbl = GESTURE_TIMING.doublePressMs;
+  const home = GESTURE_TIMING.homeMs;
+  let s = gestureStep(gestureInit(), { type: 'press', now: 1000 }).state;
+  s = gestureStep(s, { type: 'press', now: 1000 + dbl }).state;
+  assert.equal(s.stop, 1, 'zoom selected');
+  const early = gestureStep(s, { type: 'tick', now: 1000 + home });
+  assert.equal(early.state.stop, 1, 'not idle long enough yet');
+  const late = gestureStep(s, { type: 'tick', now: 1000 + dbl + home + 1 });
+  assert.equal(late.state.stop, 0, 'auto-homed');
+  assert.equal(late.effects[0].kind, 'stop');
+});
+
 
 
 

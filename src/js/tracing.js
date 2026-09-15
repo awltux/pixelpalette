@@ -74,6 +74,48 @@
   const HIDE_TAP_MS = 400;       // max tap duration (ms)
   const SWIPE_PX = 40;           // vertical travel that counts as an opacity swipe
   const SWIPE_ALPHA_STEP = 0.1;  // opacity change applied per completed swipe gesture
+  // The gesture mode dial (see HANDOVER §11) defers the single-press action
+  // inside this window so a deliberate double press cannot fire two peeks.
+  // Phase 1 will consume it; the Phase 0 probe measures the remote's real
+  // press-to-press gaps so it can be set from readings, not guesswork.
+  const DOUBLE_PRESS_MS = 300;   // double-press recognition window (ms)
+
+  /* ---- PHASE 0: temporary gesture probe (delete once constants are tuned) ----
+     Enabled only with ?gdebug=1 in the page URL. It reports what the Bluetooth
+     "remote" actually emits - event kind, press duration, travel and the
+     press-to-press gap - so HIDE_TAP_MS / SWIPE_PX / DOUBLE_PRESS_MS come from
+     measurement. It deliberately adds no style element (build.test counts
+     those) and reads `global.location` defensively, because the test vm
+     sandbox has no `location`. */
+  const GESTURE_DEBUG = (function () {
+    try {
+      return /(^|[?&])gdebug=1(&|$)/.test(global.location ? global.location.search : '');
+    } catch (e) { return false; }
+  })();
+
+  /* ---- gesture mode dial (see HANDOVER §11) ----
+     While the image is locked the remote's press/swipe drive whichever stop is
+     selected; a double press swaps the stop. Only the flat projection view has
+     stops so far - the AR ("map to surface") stop list is a later step, and
+     `gestureContext()` is the single place that decides which list is live. */
+  const GESTURE_STOPS = ['opacity', 'zoom'];
+  const GESTURE_HOME_MS = 20000;   // idle before the dial returns to OPACITY
+  const SWIPE_REPEAT_MS = 600;     // same-direction swipes inside this accelerate
+  // ZOOM's per-swipe steps, finest first. The rung is chosen by how many
+  // same-direction swipes just went by in a run: an isolated swipe is the
+  // finest correction, and each rapid repeat moves up a rung. OPACITY ignores
+  // the rung entirely (it keeps its fixed ±10%). The first rung is deliberately
+  // very fine so the last tenth of a percent is reachable by hand.
+  const ZOOM_STEPS = [0.001, 0.005, 0.010, 0.020]; // 0.1%, 0.5%, 1%, 2%
+  const SWIPE_REPEAT_MAX = ZOOM_STEPS.length - 1;  // deepest rung a run can reach
+  const ALIGN_MIN = 0.85;          // alignment zoom range: a stray gesture must
+  const ALIGN_MAX = 1.30;          // not lose the image (the edit range is .02-64)
+  const DIAL_HOLD_MS = 2000;       // chip stays expanded this long after a gesture
+  const GESTURE_TIMING = {
+    doublePressMs: DOUBLE_PRESS_MS,
+    homeMs: GESTURE_HOME_MS,
+    repeatMs: SWIPE_REPEAT_MS,
+  };
 
   // adjustable state, persisted
   let alpha = 0.6;   // 0..1
@@ -91,6 +133,26 @@
   // Tracked separately from the pan/pinch state so a tap/swipe can't pan/zoom.
   // {id, x0, y0, t0, moved, mode: 'none'|'swipe'}
   let hideTap = null;
+  // ---- PHASE 0 gesture probe state (temporary) ----
+  let gdbgEl = null;         // the panel, built lazily on the first report
+  let gdbgLines = [];        // the last few verdict lines
+  let gdbgPress = null;      // {peak, gapStart, gapEnd} for the press in flight
+  let gdbgLastStart = 0;     // press-start time of the previous accepted press
+  let gdbgLastEnd = 0;       // release time of the previous accepted press
+  const gdbgStat = {
+    taps: 0, tapMin: Infinity, tapMax: 0, tapLast: 0,
+    swipes: 0, swMin: Infinity, swMax: 0, swLast: 0,
+    gaps: 0, gapMin: Infinity, gapLast: 0,
+  };
+  // ---- gesture mode dial state ----
+  // `alignScale` is the fine alignment zoom: a multiplier applied on top of the
+  // fit-to-screen scale, so a drooping mount (which scales the feed) can be
+  // re-matched without touching the screen. Persisted; OPACITY keeps its fixed
+  // ±10% swipe step (unchanged behaviour), so only ZOOM climbs the rung ladder.
+  let alignScale = 1;
+  let gState = gestureInit();   // pure state machine state (see gestureStep)
+  let gTimer = 0;               // pending tick: deferred press / auto-home
+  let dialTimer = 0;            // chip collapse timer
   // display the projected photo (and the pinning reference photo) in
   // greyscale, so the traced tonal values are easier to read. Display-only:
   // the main colour canvas and the generated line/sketch drawing are
@@ -177,6 +239,7 @@
         feedSensorZoom = 1;
         if (typeof p.arMagnet === 'boolean') arMagnet = p.arMagnet;
         if (typeof p.arFine === 'boolean') arFine = p.arFine;
+        if (typeof p.align === 'number' && p.align >= ALIGN_MIN && p.align <= ALIGN_MAX) alignScale = p.align;
       }
     } catch (e) { /* ignore */ }
     try {
@@ -187,7 +250,7 @@
 
   function savePrefs() {
     try {
-      localStorage.setItem(PREF_KEY, JSON.stringify({ alpha, grid: gridOn, gridCell, grey: greyOn, line: lineOn, lineBlur, lineStrength, lineKey, lineMagenta, feedOn, feedS, feedTx, feedTy, arMagnet, arFine }));
+      localStorage.setItem(PREF_KEY, JSON.stringify({ alpha, grid: gridOn, gridCell, grey: greyOn, line: lineOn, lineBlur, lineStrength, lineKey, lineMagenta, feedOn, feedS, feedTx, feedTy, arMagnet, arFine, align: alignScale }));
       localStorage.setItem(CAM_KEY, facing);
     } catch (e) { /* ignore */ }
   }
@@ -605,14 +668,46 @@
   }
 
   /* ---------- view actions ---------- */
-  function fit() {
+  /* Fit the image to the screen and apply the fine alignment zoom on top. The
+     base fit is recomputed from the current viewport every time (never cached),
+     so a rotation cannot leave a stale base behind. With the default
+     `alignScale` of 1 this is exactly the old behaviour. */
+  function applyAlign() {
     const img = imageInfo();
     if (!img) { requestRender(); return; }
     const f = computeFit(img.width, img.height, cssW, cssH, 24);
-    view.scale = Math.max(0.05, Math.min(4, f.scale));
+    const base = Math.max(0.05, Math.min(4, f.scale));
+    view.scale = clampScale(base * alignScale);
     view.cx = img.width / 2;
     view.cy = img.height / 2;
     requestRender();
+  }
+
+  function fit() { applyAlign(); }
+
+  /* Set the alignment zoom (clamped to the alignment range) and re-apply it. */
+  function setAlignScale(v, persist) {
+    alignScale = Math.max(ALIGN_MIN, Math.min(ALIGN_MAX, v));
+    applyAlign();
+    if (persist !== false) savePrefs();
+    gestureChipSync();
+  }
+
+  /* ZOOM's rung for the current repeat depth: an isolated swipe is the finest
+     step, and each rapid repeat climbs one rung (see ZOOM_STEPS). `dir` is +1
+     for up / -1 for down, applied as a power so in/out are exact inverses. */
+  function alignZoomStep(dir, rung) {
+    const i = Math.max(0, Math.min(ZOOM_STEPS.length - 1, Math.round(rung) || 0));
+    setAlignScale(alignScale * Math.pow(1 + ZOOM_STEPS[i], dir));
+  }
+
+  /* Reset the alignment (and the pan) to a plain fit. The Fit button and ZOOM's
+     press action both land here. */
+  function fitReset() {
+    alignScale = 1;
+    applyAlign();
+    savePrefs();
+    gestureChipSync();
   }
 
   function pan(dxScreen, dyScreen) {
@@ -867,6 +962,7 @@
       if (els.alphaVal) els.alphaVal.textContent = Math.round(alpha * 100) + '%';
     }
     if (persist !== false) savePrefs();
+    gestureChipSync();   // keep the dial's readout truthful (HUD slider too)
     requestRender();
   }
 
@@ -909,6 +1005,10 @@
       if (els.gridCellCtrl) els.gridCellCtrl.classList.toggle('is-locked', locked);
     }
     if (els && els.canvas) els.canvas.classList.toggle('locked', locked);
+    // the gesture dial exists only while locked: start it fresh on lock, and
+    // drop it (plus any deferred press) on unlock
+    if (locked) { gState = gestureInit(); gestureChipOpen(); }
+    else gestureReset();
   }
 
   /* Peek/hide the projected reference via opacity while tracing. A quick screen
@@ -1061,6 +1161,7 @@
     if (!imageInfo()) { toast(I18N.t('arNeedImage')); return; }
     // pinning owns the gestures, so feed zoom is disabled while points are active
     if (feedOn) setFeedOn(false);
+    gestureReset();  // pinning owns the pointer: the dial's context goes null
     arMode = 'setup';
     arPhase = 'image';
     arSrc = [];
@@ -1675,6 +1776,7 @@
     setArEdit(false);
     syncArHud();
     if (els.arPanel) els.arPanel.hidden = true;
+    gestureChipSync();   // back in the flat view the dial may apply again
     requestRender();
   }
 
@@ -2180,6 +2282,7 @@
       try { document.exitFullscreen(); } catch (e) { /* ignore */ }
     }
     els.overlay.hidden = true;
+    gestureReset();
   }
 
   /* Exit-projection confirmation: the Exit button asks before leaving, since
@@ -2241,6 +2344,258 @@
       e.clientY >= r.top && e.clientY <= r.bottom;
   }
 
+  /* ---------- PHASE 0 gesture probe (temporary; see GESTURE_DEBUG) ----------
+     Reports what the remote actually emits so HIDE_TAP_MS / SWIPE_PX /
+     DOUBLE_PRESS_MS can be set from readings. Delete this block plus every
+     gdbg*() hook call once the constants are tuned. */
+  function gdbgPad(s, n) {
+    s = String(s);
+    while (s.length < n) s += ' ';
+    return s;
+  }
+
+  function gdbgRender() {
+    if (!GESTURE_DEBUG) return;
+    if (!gdbgEl) {
+      if (!els || !els.overlay || !document.createElement) return;
+      const d = document.createElement('div');
+      d.style.cssText = 'position:fixed;left:8px;top:8px;z-index:60;pointer-events:none;' +
+        'white-space:pre;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;' +
+        'color:#eaffef;background:rgba(0,0,0,.62);border-radius:6px;padding:6px 8px;' +
+        'border:1px solid rgba(120,255,180,.45);max-width:86vw;overflow:hidden;';
+      els.overlay.appendChild(d);
+      gdbgEl = d;
+    }
+    const s = gdbgStat;
+    const rng = (lo, hi, u) => (isFinite(lo) ? Math.round(lo) + '-' + Math.round(hi) + u : '-');
+    const lines = ['GESTURE PROBE  ?gdebug=1'];
+    for (let i = 0; i < gdbgLines.length; i++) lines.push(gdbgLines[i]);
+    lines.push(
+      'tap  n=' + s.taps + '  last ' + Math.round(s.tapLast) + ' ms  range ' + rng(s.tapMin, s.tapMax, ' ms') +
+        '  cap ' + HIDE_TAP_MS + (s.taps && s.tapMax > HIDE_TAP_MS ? '  <- TAPS TOO SLOW' : ''),
+      'swip n=' + s.swipes + '  last ' + Math.round(s.swLast) + ' px  range ' + rng(s.swMin, s.swMax, ' px') +
+        '  min ' + SWIPE_PX + (s.swipes && s.swMin < SWIPE_PX ? '  <- SWIPES TOO SHORT' : ''),
+      'dbl  n=' + s.gaps + '  last ' + Math.round(s.gapLast) + ' ms  min ' +
+        (isFinite(s.gapMin) ? Math.round(s.gapMin) : '-') + ' ms  window ' + DOUBLE_PRESS_MS,
+    );
+    gdbgEl.textContent = lines.join('\n');
+  }
+
+  function gdbgNote(line) {
+    if (!GESTURE_DEBUG) return;
+    gdbgLines.push(line);
+    while (gdbgLines.length > 3) gdbgLines.shift();
+    gdbgRender();
+  }
+
+  /* a pointer-down the locked gesture deliberately drops - the most common
+     reason "the remote does nothing at all" */
+  function gdbgSkip(why) { gdbgNote('IGNORED  ' + why); }
+
+  function gdbgPressStart() {
+    if (!GESTURE_DEBUG) return;
+    const now = Date.now();
+    gdbgPress = {
+      peak: 0,
+      gapStart: gdbgLastStart ? now - gdbgLastStart : 0,
+      gapEnd: gdbgLastEnd ? now - gdbgLastEnd : 0,
+    };
+    gdbgLastStart = now;
+  }
+
+  function gdbgFinish(tap, e, outcome) {
+    if (!GESTURE_DEBUG) return;
+    const now = Date.now();
+    const ex = e.clientX || 0, ey = e.clientY || 0;
+    const dur = now - tap.t0;
+    const dx = ex - tap.x0, dy = ey - tap.y0;
+    const travel = Math.hypot(dx, dy);
+    const peak = gdbgPress ? gdbgPress.peak : travel;
+    const gapStart = gdbgPress ? gdbgPress.gapStart : 0;
+    const gapEnd = gdbgPress ? gdbgPress.gapEnd : 0;
+    const kind = tap.mode === 'swipe' ? 'SWIPE' : (tap.moved ? 'DRAG' : 'TAP');
+    const s = gdbgStat;
+    if (kind === 'TAP') {
+      s.taps++; s.tapLast = dur;
+      s.tapMin = Math.min(s.tapMin, dur);
+      s.tapMax = Math.max(s.tapMax, dur);
+    } else if (kind === 'SWIPE') {
+      s.swipes++; s.swLast = peak;
+      s.swMin = Math.min(s.swMin, peak);
+      s.swMax = Math.max(s.swMax, peak);
+    }
+    if (gapStart > 0) {
+      s.gaps++; s.gapLast = gapStart;
+      s.gapMin = Math.min(s.gapMin, gapStart);
+    }
+    // say why nothing happened when the thresholds rejected the press
+    let why = '';
+    if (!outcome && kind === 'TAP' && dur > HIDE_TAP_MS) {
+      why = '  <- dur ' + Math.round(dur) + '>' + HIDE_TAP_MS + ' (raise HIDE_TAP_MS)';
+    }
+    gdbgNote(gdbgPad(kind + (outcome ? ' -> ' + outcome : ''), 20) +
+      'dur ' + Math.round(dur) + 'ms  tr ' + Math.round(travel) +
+      '  peak ' + Math.round(peak) + '  dxy ' + Math.round(dx) + ',' + Math.round(dy) +
+      (gapStart ? '  dStart ' + Math.round(gapStart) + 'ms' : '') +
+      (gapEnd ? '  dRel ' + Math.round(gapEnd) + 'ms' : '') + why);
+    gdbgPress = null;
+    gdbgLastEnd = now;
+  }
+
+  /* ---------- gesture mode dial: decision logic (pure, unit-tested) ----------
+     The locked surface has no buttons: the remote's press/swipe are the only
+     controls, so a small always-visible chip says which role they drive. Keeping
+     the decision logic pure means it is testable without a DOM, and a second
+     input source (keyboard, if the remote ever presents as HID) could feed the
+     same machine. */
+  function gestureInit() {
+    return { stop: 0, pending: null, dir: 0, n: 0, lastSwipeAt: 0, lastUserAt: 0 };
+  }
+
+  /* Pure: (state, event) -> { state, effects }.
+     Events: { type:'press' | 'swipe' | 'tick', dir?, now? }.
+     Effects: { kind:'press'|'stop', stop } and { kind:'step', stop, dir, rung }:
+       - 'press' is the deferred single press (peek on OPACITY, reset on ZOOM);
+       - 'stop' means the dial moved (double press, or the idle auto-home);
+       - 'step' is one completed swipe, `rung` = its depth in the repeat run.
+     A press is held for DOUBLE_PRESS_MS before its action fires, so a deliberate
+     double press cannot fire two peeks. A *stray* double press is
+     self-cancelling because peekHide() is a toggle. */
+  function gestureStep(st, evt) {
+    const s = {
+      stop: st.stop, pending: st.pending, dir: st.dir, n: st.n,
+      lastSwipeAt: st.lastSwipeAt, lastUserAt: st.lastUserAt,
+    };
+    const now = typeof evt.now === 'number' ? evt.now : s.lastUserAt;
+    const out = [];
+    const stopId = () => GESTURE_STOPS[s.stop];
+
+    if (evt.type === 'press') {
+      if (s.pending && now - s.pending.at <= DOUBLE_PRESS_MS) {
+        // second press inside the window: swap which stop the remote drives and
+        // swallow the first press's action entirely
+        s.pending = null;
+        s.stop = (s.stop + 1) % GESTURE_STOPS.length;
+        out.push({ kind: 'stop', stop: stopId() });
+      } else {
+        s.pending = { at: now };
+      }
+      s.lastUserAt = now;
+    } else if (evt.type === 'swipe') {
+      s.pending = null;   // a swipe is a drag, so it was never a tap
+      const dir = evt.dir > 0 ? 1 : -1;
+      if (s.dir === dir && now - s.lastSwipeAt <= SWIPE_REPEAT_MS) s.n = Math.min(s.n + 1, SWIPE_REPEAT_MAX);
+      else { s.dir = dir; s.n = 0; }
+      s.lastSwipeAt = now;
+      s.lastUserAt = now;
+      out.push({ kind: 'step', stop: stopId(), dir: dir, rung: s.n });
+    } else if (evt.type === 'tick') {
+      if (s.pending && now - s.pending.at > DOUBLE_PRESS_MS) {
+        s.pending = null;
+        out.push({ kind: 'press', stop: stopId() });
+      }
+      if (s.stop !== 0 && now - s.lastUserAt > GESTURE_HOME_MS) {
+        s.stop = 0;
+        out.push({ kind: 'stop', stop: stopId() });
+      }
+    }
+    return { state: s, effects: out };
+  }
+
+  /* Which stop list is live. Only the flat projection view has stops today; the
+     AR "map to surface" list ('map') is the planned second context, and keeping
+     this decision in one place is what preserves the invariant that makes the
+     surface wobble-proof: exactly one handler owns the pointer. */
+  function gestureContext() {
+    if (!active || !locked) return null;
+    if (arMode !== 'off') return null;
+    return 'flat';
+  }
+
+  function runGestureEffect(ef) {
+    if (ef.kind === 'stop') { gestureChipOpen(); return; }
+    if (ef.kind === 'press') {
+      if (ef.stop === 'zoom') fitReset();   // ZOOM: reset the alignment
+      else peekHide();                      // OPACITY: peek / restore (unchanged)
+      gestureChipOpen();
+      return;
+    }
+    if (ef.kind === 'step') {
+      if (ef.stop === 'zoom') alignZoomStep(ef.dir, ef.rung);
+      // OPACITY keeps its fixed step (one swipe = ±10%), exactly as before
+      else setAlpha(alpha + ef.dir * SWIPE_ALPHA_STEP);
+      gestureChipOpen();
+    }
+  }
+
+  function gestureApply(evt) {
+    if (!gestureContext()) return;
+    const r = gestureStep(gState, evt);
+    gState = r.state;
+    for (let i = 0; i < r.effects.length; i++) runGestureEffect(r.effects[i]);
+    gestureChipSync();
+    gestureSchedule();
+  }
+
+  /* Ticks resolve two deadlines: the deferred single press and the idle
+     auto-home. Both are one-shot, so the timer is armed only while one of them
+     is outstanding - and auto-home only matters away from the home stop. */
+  function gestureSchedule() {
+    if (gTimer) { clearTimeout(gTimer); gTimer = 0; }
+    if (!active) return;
+    const now = Date.now();
+    let wait;
+    if (gState.pending) wait = DOUBLE_PRESS_MS - (now - gState.pending.at) + 30;
+    else if (gState.stop !== 0) wait = GESTURE_HOME_MS - (now - gState.lastUserAt) + 30;
+    else return;
+    gTimer = setTimeout(() => {
+      gTimer = 0;
+      gestureApply({ type: 'tick', now: Date.now() });
+    }, Math.max(30, wait));
+  }
+
+  function gestureReset() {
+    gState = gestureInit();
+    if (gTimer) { clearTimeout(gTimer); gTimer = 0; }
+    if (dialTimer) { clearTimeout(dialTimer); dialTimer = 0; }
+    if (els && els.dial) {
+      els.dial.classList.remove('is-open');
+      els.dial.hidden = true;
+    }
+  }
+
+  /* Expand the chip for DIAL_HOLD_MS after a gesture, then let it fall back to
+     the compact form: the surface has to stay readable while tracing. */
+  function gestureChipOpen() {
+    if (!els || !els.dial) return;
+    gestureChipSync();
+    els.dial.classList.add('is-open');
+    if (dialTimer) clearTimeout(dialTimer);
+    dialTimer = setTimeout(() => {
+      dialTimer = 0;
+      if (els && els.dial) els.dial.classList.remove('is-open');
+    }, DIAL_HOLD_MS);
+  }
+
+  function gestureChipSync() {
+    if (!els || !els.dial) return;
+    if (!gestureContext()) { els.dial.hidden = true; return; }
+    const zoom = GESTURE_STOPS[gState.stop] === 'zoom';
+    els.dial.hidden = false;
+    if (els.dialStopO) els.dialStopO.classList.toggle('is-on', !zoom);
+    if (els.dialStopZ) els.dialStopZ.classList.toggle('is-on', zoom);
+    if (els.dialValue) {
+      els.dialValue.textContent = zoom
+        ? I18N.t('dialZoomValue', { n: (alignScale * 100).toFixed(1) })
+        : Math.round(alpha * 100) + '%';
+    }
+    if (els.dialHint) {
+      els.dialHint.textContent = I18N.t(zoom ? 'dialSwipeZoom' : 'dialSwipeOpacity') +
+        '  \u00b7  ' + I18N.t(zoom ? 'dialPressZoom' : 'dialPressOpacity') +
+        '  \u00b7  ' + I18N.t('dialSwap');
+    }
+  }
+
   /* While locked, a press on the projection surface (anywhere off the HUD)
      starts a peek/swipe: a quick tap peeks the reference away, a vertical
      swipe applies ONE discrete opacity step (up = more opaque, down = more
@@ -2249,11 +2604,12 @@
      drag. The gesture tracks across the whole window (see onLockedMove /
      onLockedEnd) so a swipe runs on past the image edge. */
   function startLockedGesture(e) {
-    if (!locked || arMode !== 'off') return false;
-    if (overHud(e)) return false;
+    if (!locked || arMode !== 'off') { gdbgSkip('lock off / AR pinning active'); return false; }
+    if (overHud(e)) { gdbgSkip('over the HUD'); return false; }
     e.preventDefault();
     els.canvas.setPointerCapture(e.pointerId);
     hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none' };
+    gdbgPressStart();
     return true;
   }
 
@@ -2262,6 +2618,7 @@
     const dx = e.clientX - hideTap.x0;
     const dy = e.clientY - hideTap.y0;
     const dist = Math.hypot(dx, dy);
+    if (gdbgPress) gdbgPress.peak = Math.max(gdbgPress.peak, dist);
     // recognise a swipe only when the drag is clearly vertical and far enough.
     // We don't scrub opacity live here - the step is applied once, on release.
     if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP &&
@@ -2278,19 +2635,25 @@
     const cancelled = e.type === 'pointercancel';
     const tap = hideTap;
     hideTap = null;
-    if (cancelled) return;
+    if (cancelled) { gdbgFinish(tap, e, 'cancel'); return; }
     const dx = e.clientX - tap.x0, dy = e.clientY - tap.y0;
     // a quick, nearly motionless press peeks the reference away / restores it
     if (tap.mode !== 'swipe' && !tap.moved && Date.now() - tap.t0 <= HIDE_TAP_MS &&
       Math.hypot(dx, dy) <= HIDE_TAP_SLOP) {
-      peekHide();
+      gdbgFinish(tap, e, 'press');
+      // the single press is deferred by the dial, so a double press can swap the
+      // stop without also firing two peeks
+      gestureApply({ type: 'press', now: Date.now() });
       return;
     }
-    // one completed vertical swipe = one opacity step in its direction
+    // one completed vertical swipe = one step of whichever stop is selected
     if (tap.mode === 'swipe') {
-      if (dy <= -SWIPE_PX / 2) setAlpha(alpha + SWIPE_ALPHA_STEP);   // swiped up
-      else if (dy >= SWIPE_PX / 2) setAlpha(alpha - SWIPE_ALPHA_STEP); // swiped down
+      if (dy <= -SWIPE_PX / 2) { gdbgFinish(tap, e, 'swipe +1'); gestureApply({ type: 'swipe', dir: 1, now: Date.now() }); }   // swiped up
+      else if (dy >= SWIPE_PX / 2) { gdbgFinish(tap, e, 'swipe -1'); gestureApply({ type: 'swipe', dir: -1, now: Date.now() }); } // swiped down
+      else gdbgFinish(tap, e, 'no step (dy small)');
+      return;
     }
+    gdbgFinish(tap, e, '');
   }
 
   function onPointerDown(e) {
@@ -2311,7 +2674,8 @@
       startLockedGesture(e);
       return;
     }
-    if (locked) return;
+    if (locked) { gdbgSkip('locked but AR pinning is active'); return; }
+    gdbgSkip('not locked (pan/zoom)');
     els.canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) {
@@ -2479,6 +2843,11 @@
       video: grab('project-video'),
       canvas: grab('project-canvas'),
       hud: grab('project-hud'),
+      dial: grab('project-dial'),
+      dialStopO: grab('dial-stop-opacity'),
+      dialStopZ: grab('dial-stop-zoom'),
+      dialValue: grab('dial-value'),
+      dialHint: grab('dial-hint'),
       hudToggle: grab('project-hud-toggle'),
       alpha: grab('project-alpha'),
       alphaVal: grab('project-alpha-val'),
@@ -2535,7 +2904,7 @@
     els.gridCell.addEventListener('input', () => setGridCell(parseFloat(els.gridCell.value)));
     els.lock.addEventListener('click', () => setLocked(!locked));
     els.cam.addEventListener('click', switchCamera);
-    els.fit.addEventListener('click', () => fit());
+    els.fit.addEventListener('click', () => fitReset());
     els.exit.addEventListener('click', openExitConfirm);
     if (els.exitYes) els.exitYes.addEventListener('click', confirmExitProject);
     if (els.exitCancel) els.exitCancel.addEventListener('click', closeExitConfirm);
@@ -2648,6 +3017,7 @@
       luminanceOf, boxBlur, makeLineDrawing, lineDrawingFromGray, keyWhiteToAlpha,
       computeHomography, invert3, applyHomography,
       splitFeedZoom,
+      gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS,
     },
   };
 
