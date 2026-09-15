@@ -1323,6 +1323,24 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
   background: #fff; color: var(--accent); border: 1px solid #fff;
 }
 .update-banner .btn:hover { background: #f2f4f8; }
+/* the two hashes the banner is comparing, so a stale probe is obvious */
+.update-banner .update-banner-builds {
+  font-variant-numeric: tabular-nums;
+  font-size: .74rem;
+  letter-spacing: .02em;
+  opacity: .92;
+}
+/* the dismiss affordance stays quiet next to the primary Reload button */
+.update-banner .update-dismiss {
+  background: transparent;
+  color: #fff;
+  border-color: rgba(255, 255, 255, .6);
+}
+.update-banner .update-dismiss:hover {
+  background: rgba(255, 255, 255, .16);
+  color: #fff;
+  border-color: #fff;
+}
 
 /* ---------- line-drawing toggle & white tuning panel ---------- */
 .project-lines {

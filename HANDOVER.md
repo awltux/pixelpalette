@@ -158,10 +158,19 @@ Recent, newest-first:
     HTTPS or localhost).
   - `initUpdateCheck()` reads `#info-build-hash`, and — **only if online** —
     fetches `'./version.json?t=<now>'` with `cache:'no-store'`; if `build`
-    differs, shows `#update-banner` with a Reload button.
-- Banner markup/strings: `src/index.html` (`#update-banner`, `#update-reload`),
-  `src/css/app.css` (`.update-banner`), `src/js/i18n.js`
-  (`updateAvailable`, `updateReload`).
+    differs it fills `#update-builds` with **both** hashes and shows
+    `#update-banner`. A dismiss button hides it and remembers that probe value
+    (`pp.update.dismissed`), so a stale probe cannot nag forever while a
+    genuinely different one still reappears.
+  - The Reload button calls `forceUpdateAndReload()`: delete every Cache Storage
+    entry, post `SKIP_WAITING` to a waiting worker, `registration.update()`, then
+    reload — racing a 1.5 s timeout so it can never hang. A plain
+    `location.reload()` is **not** enough, because the SW answers it from its own
+    cache.
+- Banner markup/strings: `src/index.html` (`#update-banner`, `#update-builds`,
+  `#update-reload`, `#update-dismiss`), `src/css/app.css` (`.update-banner`),
+  `src/js/i18n.js` (`updateAvailable`, `updateBuilds`, `updateReload`,
+  `updateDismiss`).
 - The host in `scripts/host.mjs` already serves `.js`/`.json` with correct
   MIME types and maps directories to `index.html`, so this works locally at
   `http://localhost:8081/`.
@@ -169,6 +178,33 @@ Recent, newest-first:
 **Expected UX:** the first online visit registers/installs the worker and
 caches the app; from then on it opens offline, and when a newer build is on the
 server the banner offers a manual reload. **Not covered by automated tests.**
+
+### Confirmed failure mode: a stale `version.json` (2026-09-15)
+
+Reported as "pressing Reload does nothing and the banner never goes away", and
+confirmed against the live site: `version.json` returned `5993fec` (built
+2026-09-08) while the running page was several builds newer. The check is a bare
+inequality with **no ordering**, so it fired and then could never be satisfied —
+each reload serves the same newer app and refetches the same older probe.
+`version.json?t=<now>` returned the same stale value, so cache-busting the URL
+did not help either (a host/CDN that ignores query strings, or caches `.json`,
+will do that).
+
+Two causes, both server-side: the deploy published only `index.html` (and
+`sw.js`) and left `version.json` behind — §2 warns about partial `dist/` deploys
+— or the host caches `.json` regardless of the query string.
+
+Diagnosis checklist:
+
+1. Compare the Info dialog's `build=` with the `version.json` URL; after a full
+   `dist/` deploy they must be equal.
+2. If they differ, redeploy the **whole** `dist/`, not just `index.html`.
+3. If it is still stale afterwards, the host is caching `.json`: send a
+   `no-cache` header for `version.json`, or change the probe filename per build.
+
+The client-side hardening above (both hashes, dismiss, cache-clearing reload)
+makes this visible and non-nagging, but it cannot fix a server that serves the
+wrong probe.
 
 ## 7. Traps / gotchas (learned the hard way)
 
@@ -191,7 +227,16 @@ server the banner offers a manual reload. **Not covered by automated tests.**
   also predates `sw.js`/`version.json`/offline support and this file.
 - The version check treats "different hash" as "update available" (no ordering
   comparison) — fine for exact-build matching, but a stale/incorrect
-  `version.json` would prompt spuriously.
+  `version.json` prompts spuriously. **This really happened** (§6): a probe
+  *older* than the running app produced a banner that no reload could clear. The
+  banner now shows both hashes and can be dismissed.
+- **Never let the service worker fetch without bypassing the HTTP cache.**
+  Both the install precache and the stale-while-revalidate refresh use
+  `fetch(…, { cache: 'no-store' })`. Without it they can be answered by a
+  heuristically-cached copy (which merely re-stores the same stale body) or by a
+  `304` — and since the refresh is gated on `res.ok`, a 304 is dropped silently,
+  so the SW cache can never move off the build it already holds. That is what
+  makes "Reload" look broken even when the probe is correct.
 
 ## 8. Verification checklist before saying "done"
 

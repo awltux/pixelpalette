@@ -42,6 +42,8 @@
       btnProject: 'Tracing',
       updateAvailable: 'A new version of Pixel Palette is available.',
       updateReload: 'Reload',
+      updateBuilds: 'installed {a} \u00b7 server {b}',
+      updateDismiss: 'Dismiss',
       projectAria: 'Project the loaded image over a live camera feed for tracing',
       projectNoImage: 'Open an image first \u2014 there is nothing to project.',
       traceAlpha: 'Overlay opacity',

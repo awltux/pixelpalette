@@ -132,10 +132,15 @@ Google Search Console verification: paste the meta tag here after adding the sit
 </div>
 <noscript><style>#boot-overlay { display: none; }</style></noscript>
 
-<!-- Update-available banner (shown by js/app.js when a newer build is online) -->
+<!-- Update-available banner (shown by js/app.js when the server's version.json
+     disagrees with the running build). It reports both hashes, because a stale
+     server-side probe is a real failure mode (HANDOVER §6), and it can be
+     dismissed so that a probe older than the app cannot nag forever. -->
 <div class="update-banner" id="update-banner" role="status" hidden>
   <span class="update-banner-msg" data-i18n="updateAvailable">A new version is available.</span>
+  <span class="update-banner-builds" id="update-builds"></span>
   <button id="update-reload" class="btn btn-primary btn-sm" type="button" data-i18n="updateReload">Reload</button>
+  <button id="update-dismiss" class="btn update-dismiss" type="button" data-i18n="updateDismiss">Dismiss</button>
 </div>
 
 <header class="app-header">

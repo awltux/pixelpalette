@@ -19,13 +19,24 @@ const SCOPE = self.registration.scope; // e.g. https://host/pixelpalette/
 const SCOPE_PATH = new URL(SCOPE).pathname;
 
 self.addEventListener('install', (event) => {
-  // Precache the app shell so the very next visit can open offline.
+  // Precache the app shell so the very next visit can open offline. The fetch
+  // deliberately bypasses the HTTP cache: a heuristically-cached copy would
+  // otherwise be precached as "the new build", and the app could then never move
+  // off the build the browser already had (see HANDOVER §7).
   event.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.add(SCOPE))
-      .catch(() => { /* cache the directory may fail on some servers */ })
+      .then((c) => fetch(SCOPE, { cache: 'no-store' })
+        .then((res) => (res && res.ok ? c.put(SCOPE, res) : null)))
+      .catch(() => { /* caching the directory may fail on some servers */ })
       .then(() => self.skipWaiting())
   );
+});
+
+// The page posts this just before reloading after an update, so a worker that is
+// waiting behind the current one can take over immediately instead of on the
+// next cold start.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -52,7 +63,12 @@ self.addEventListener('fetch', (event) => {
 async function staleWhileRevalidate(req) {
   const cache = await caches.open(CACHE);
   const cached = await cache.match(req);
-  const network = fetch(req)
+  // Revalidate straight from the network, bypassing the HTTP cache. Without
+  // `no-store` this fetch can be answered by a heuristically-cached copy (which
+  // then just re-stores the same stale body) or by a 304, which fails the
+  // `res.ok` test below - either way the cache never moves off the build it
+  // holds and "reload" appears to do nothing.
+  const network = fetch(req, { cache: 'no-store' })
     .then((res) => {
       if (res && res.ok) cache.put(req, res.clone());
       return res;

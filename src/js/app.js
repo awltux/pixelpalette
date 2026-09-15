@@ -302,6 +302,11 @@
   /* ---------- offline + update check ---------- */
   // The build stamps the current commit hash into the Info dialog
   // (#info-build-hash). We read it back to know which version is running.
+  // The server build the banner is currently reporting ('' until checked), and
+  // the key remembering which probe value the user dismissed.
+  let updateProbe = '';
+  const UPDATE_DISMISS_KEY = 'pp.update.dismissed';
+
   function currentBuildHash() {
     const el = document.getElementById('info-build-hash');
     if (!el) return '';
@@ -320,14 +325,36 @@
     });
   }
 
-  // When online, compare the running build against the server's version.json
-  // and offer a reload if a newer build exists. version.json is served fresh
-  // (never cached by the service worker) and is network-only here.
+  // When online, compare the running build against the server's version.json and
+  // offer a reload if they differ. version.json is never cached by the service
+  // worker and is fetched network-only here - but a host/CDN can still serve a
+  // stale copy, and a probe that is OLDER than the running app can never be
+  // satisfied by reloading. So the banner reports BOTH hashes and can be
+  // dismissed; see HANDOVER §6 for the confirmed failure mode.
   function initUpdateCheck() {
     const banner = document.getElementById('update-banner');
     if (!banner) return;
+    const builds = document.getElementById('update-builds');
     const reloadBtn = document.getElementById('update-reload');
-    if (reloadBtn) reloadBtn.addEventListener('click', () => { location.reload(); });
+    const dismissBtn = document.getElementById('update-dismiss');
+
+    if (reloadBtn) {
+      reloadBtn.addEventListener('click', () => {
+        reloadBtn.disabled = true;   // one shot: this leaves the page
+        forceUpdateAndReload();
+      });
+    }
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        banner.hidden = true;
+        // Remember the probe value that was dismissed: the banner stays away for
+        // that value, but returns if the server later reports a different build.
+        if (updateProbe) {
+          try { localStorage.setItem(UPDATE_DISMISS_KEY, updateProbe); } catch (e) { /* ignore */ }
+        }
+      });
+    }
+
     const cur = currentBuildHash();
     // A real build is a 7-hex short hash; the source placeholder isn't, so an
     // unbuilt page skips the check. (No literal token here to keep the bundle clean.)
@@ -336,9 +363,48 @@
     fetch('./version.json?t=' + Date.now(), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((meta) => {
-        if (meta && meta.build && meta.build !== cur) banner.hidden = false;
+        if (!meta || !meta.build || meta.build === cur) return;
+        updateProbe = meta.build;
+        if (dismissedProbe() === updateProbe) return;
+        if (builds) builds.textContent = I18N.t('updateBuilds', { a: cur, b: meta.build });
+        banner.hidden = false;
       })
       .catch(() => { /* offline or unreachable: no banner */ });
+  }
+
+  function dismissedProbe() {
+    try { return localStorage.getItem(UPDATE_DISMISS_KEY) || ''; } catch (e) { return ''; }
+  }
+
+  // Make the Reload button actually apply an update. A plain reload is answered
+  // from the service-worker cache (stale-while-revalidate), so it can show the
+  // same build over and over; dropping the cached shell and letting a waiting
+  // worker take over is what makes the button work. Best-effort by design - it
+  // reloads even if a step fails or hangs, because the user asked to reload.
+  function forceUpdateAndReload() {
+    const reload = () => { global.location.reload(); };
+    const sw = global.navigator && navigator.serviceWorker;
+    const cachesApi = global.caches;
+    if (!sw && !cachesApi) { reload(); return; }
+    const steps = [];
+    if (cachesApi) {
+      steps.push(cachesApi.keys()
+        .then((keys) => Promise.all(keys.map((k) => cachesApi.delete(k))))
+        .catch(() => { /* ignore */ }));
+    }
+    if (sw) {
+      steps.push(sw.getRegistration().then((reg) => {
+        if (!reg) return;
+        // a worker waiting behind the current one should take over now
+        if (reg.waiting && reg.waiting.postMessage) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        return reg.update();
+      }).catch(() => { /* ignore */ }));
+    }
+    // never let the reload hang on a slow or unavailable worker
+    Promise.race([
+      Promise.all(steps),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]).then(reload);
   }
 
   function initOffline() {
