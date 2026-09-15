@@ -108,8 +108,12 @@
   // very fine so the last tenth of a percent is reachable by hand.
   const ZOOM_STEPS = [0.001, 0.005, 0.010, 0.020]; // 0.1%, 0.5%, 1%, 2%
   const SWIPE_REPEAT_MAX = ZOOM_STEPS.length - 1;  // deepest rung a run can reach
-  const ALIGN_MIN = 0.85;          // alignment zoom range: a stray gesture must
-  const ALIGN_MAX = 1.30;          // not lose the image (the edit range is .02-64)
+  // Alignment band, RELATIVE to the zoom in effect when the dial took over
+  // (`alignSeed`), so the guarantee "a stray gesture cannot lose the image"
+  // holds whatever the unlocked pinch-zoom left behind. With the usual seed of 1
+  // (locked at the plain fit) this is the familiar 0.85-1.30.
+  const ALIGN_MIN = 0.85;
+  const ALIGN_MAX = 1.30;
   const DIAL_HOLD_MS = 2000;       // chip stays expanded this long after a gesture
   const GESTURE_TIMING = {
     doublePressMs: DOUBLE_PRESS_MS,
@@ -150,6 +154,10 @@
   // re-matched without touching the screen. Persisted; OPACITY keeps its fixed
   // ±10% swipe step (unchanged behaviour), so only ZOOM climbs the rung ladder.
   let alignScale = 1;
+  // Band centre: the effective zoom over the fit at the moment the dial took
+  // over. The view is free to pinch-zoom while unlocked, so this must be seeded
+  // from what is on screen or the first ZOOM gesture snaps back to the fit.
+  let alignSeed = 1;
   let gState = gestureInit();   // pure state machine state (see gestureStep)
   let gTimer = 0;               // pending tick: deferred press / auto-home
   let dialTimer = 0;            // chip collapse timer
@@ -217,6 +225,11 @@
 
   /* ---------- persistence ---------- */
   function loadPrefs() {
+    // Every session starts from the plain fit. A persisted *fine* factor is
+    // restored below, but an out-of-band one is rejected - so a large unlocked
+    // zoom from a previous run cannot leak into this one through the variable.
+    alignScale = 1;
+    alignSeed = 1;
     try {
       const raw = localStorage.getItem(PREF_KEY);
       if (raw) {
@@ -685,12 +698,43 @@
 
   function fit() { applyAlign(); }
 
-  /* Set the alignment zoom (clamped to the alignment range) and re-apply it. */
+  /* The alignment band, centred on the zoom that was in effect when the dial
+     took over. `alignScale` is anchored to the fit-to-screen scale, so seeding
+     the band from the live view is what stops the first ZOOM gesture from
+     snapping away an unlocked pinch-zoom. */
+  function alignBand(seed) {
+    const s = (isFinite(seed) && seed > 0) ? seed : 1;
+    return { lo: s * ALIGN_MIN, hi: s * ALIGN_MAX };
+  }
+
+  /* Clamp an alignment factor into its band. A non-finite value must never reach
+     clampScale - it would propagate into the canvas transform and blank the
+     image - so it falls back to the plain fit. */
+  function clampAlign(v, seed) {
+    if (!isFinite(v)) return 1;
+    const b = alignBand(seed);
+    return Math.max(b.lo, Math.min(b.hi, v));
+  }
+
+  /* Set the alignment zoom (clamped to the active band) and re-apply it. */
   function setAlignScale(v, persist) {
-    alignScale = Math.max(ALIGN_MIN, Math.min(ALIGN_MAX, v));
+    alignScale = clampAlign(v, alignSeed);
     applyAlign();
     if (persist !== false) savePrefs();
     gestureChipSync();
+  }
+
+  /* Adopt the zoom actually on screen as the band centre. Called when the dial
+     takes over (Lock): until then the view was free to pan/zoom via zoomAt and
+     `alignScale` no longer described what was displayed. */
+  function seedAlignFromView() {
+    const img = imageInfo();
+    if (!img) return;
+    const f = computeFit(img.width, img.height, cssW, cssH, 24);
+    const base = Math.max(0.05, Math.min(4, f.scale));
+    const cur = base > 0 ? clampScale(view.scale / base) : 1;
+    alignScale = cur;
+    alignSeed = cur;
   }
 
   /* ZOOM's rung for the current repeat depth: an isolated swipe is the finest
@@ -705,6 +749,7 @@
      press action both land here. */
   function fitReset() {
     alignScale = 1;
+    alignSeed = 1;
     applyAlign();
     savePrefs();
     gestureChipSync();
@@ -1007,7 +1052,7 @@
     if (els && els.canvas) els.canvas.classList.toggle('locked', locked);
     // the gesture dial exists only while locked: start it fresh on lock, and
     // drop it (plus any deferred press) on unlock
-    if (locked) { gState = gestureInit(); gestureChipOpen(); }
+    if (locked) { gState = gestureInit(); seedAlignFromView(); gestureChipOpen(); }
     else gestureReset();
   }
 
@@ -2556,6 +2601,9 @@
 
   function gestureReset() {
     gState = gestureInit();
+    // the dial is no longer driving the zoom, so its band goes back to the fit;
+    // `alignScale` itself is left alone so unlocking cannot move the image
+    alignSeed = 1;
     if (gTimer) { clearTimeout(gTimer); gTimer = 0; }
     if (dialTimer) { clearTimeout(dialTimer); dialTimer = 0; }
     if (els && els.dial) {
@@ -3018,6 +3066,7 @@
       computeHomography, invert3, applyHomography,
       splitFeedZoom,
       gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS,
+      alignBand, clampAlign,
     },
   };
 

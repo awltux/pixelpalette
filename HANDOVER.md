@@ -304,6 +304,19 @@ The dial is live in `src/js/tracing.js`:
   a rotation cannot leave a stale base; at the default `alignScale = 1` it is
   byte-identical to the old `fit()`. `fitReset()` (align 1 + refit) is what the
   **Fit image** button and ZOOM's press action both call.
+- **The alignment band is seeded from the live view on Lock**
+  (`seedAlignFromView`, called from `setLocked(true)`). This fixes a real bug:
+  `alignScale` is anchored to the *fit* scale, but the unlocked view can be
+  pinch-zoomed freely (`zoomAt`), so without seeding, the first ZOOM gesture
+  snapped the image back to the fit (lock at 350%, swipe, land near 100.5%) and
+  the chip claimed 100% while the display was at 350%. The band
+  (`alignBand(seed)`) is therefore **relative to the seed** — `seed*0.85 ..
+  seed*1.30` — which keeps "a stray gesture cannot lose the image" true at any
+  starting zoom, and `clampAlign` returns 1 for a non-finite factor so a NaN can
+  never reach `clampScale` and blank the image. Lock re-seeds; `loadPrefs` resets
+  to 1 first, so a large session zoom is not carried into the next session (only
+  an in-band fine factor is restored — anything outside the fit-centred band is
+  rejected on load).
 - Chip: `#project-dial` in `src/index.html`, `.project-dial` in `app.css`,
   strings in `i18n.js`. It is `pointer-events: none`, so it can never steal a
   gesture and needed **no** `overHud` change. It expands for `DIAL_HOLD_MS` after
@@ -314,8 +327,9 @@ The dial is live in `src/js/tracing.js`:
 Constants (all in `tracing.js`, all still *guesses* except what the Phase 0 probe
 validates): `DOUBLE_PRESS_MS 300`, `GESTURE_HOME_MS 20000`,
 `SWIPE_REPEAT_MS 600`, `ZOOM_STEPS [0.001, 0.005, 0.01, 0.02]` (the rung ladder;
-`SWIPE_REPEAT_MAX` is derived from its length), `ALIGN_MIN 0.85`,
-`ALIGN_MAX 1.30`, `DIAL_HOLD_MS 2000`.
+`SWIPE_REPEAT_MAX` is derived from its length), `ALIGN_MIN 0.85` / `ALIGN_MAX 1.30`
+(a band *relative to the seed*, so 0.85–1.30 of wherever the zoom was on Lock),
+`DIAL_HOLD_MS 2000`.
 
 ### Decisions already taken so a later "adjust the pins" stop fits
 

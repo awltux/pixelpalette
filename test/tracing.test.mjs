@@ -433,6 +433,30 @@ test('repeated same-direction swipes climb the ZOOM rung ladder and then cap', (
   assert.equal(back.effects[0].dir, -1);
 });
 
+test('the alignment band is seeded from the live view and never snaps the zoom', () => {
+  const { alignBand, clampAlign } = loadTracing();
+  // the familiar band when the dial takes over at the plain fit
+  const fit = host(alignBand(1));
+  assert.equal(fit.lo, 0.85);
+  assert.ok(Math.abs(fit.hi - 1.3) < 1e-9);
+  // seeded from an unlocked pinch-zoom, the starting factor stays representable:
+  // the first ZOOM gesture steps from where the user is instead of clamping back
+  assert.equal(clampAlign(3.5, 3.5), 3.5, 'the seed itself is never clamped away');
+  assert.equal(clampAlign(2.5 * (1 + 0.001), 2.5), 2.5 * 1.001);
+  const seeded = host(alignBand(3.5));
+  assert.ok(Math.abs(seeded.lo - 2.975) < 1e-9, 'the band scales with the seed');
+  assert.ok(Math.abs(seeded.hi - 4.55) < 1e-9);
+  // and the guard rail still holds whatever the seed was
+  assert.equal(clampAlign(99, 3.5), seeded.hi);
+  assert.equal(clampAlign(0.01, 3.5), seeded.lo);
+  assert.equal(clampAlign(99, 1), 1.3);
+  assert.equal(clampAlign(0.01, 1), 0.85);
+  // a non-finite factor must never reach clampScale: it would blank the image
+  assert.equal(clampAlign(NaN, 1), 1);
+  assert.equal(clampAlign(undefined, 1), 1);
+  assert.equal(clampAlign(NaN, NaN), 1);
+});
+
 test('the ZOOM ladder starts at a 0.1% step and climbs monotonically', () => {
   const { ZOOM_STEPS } = loadTracing();
   const steps = host(ZOOM_STEPS);
