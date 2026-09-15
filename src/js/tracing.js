@@ -99,6 +99,11 @@
      stops so far - the AR ("map to surface") stop list is a later step, and
      `gestureContext()` is the single place that decides which list is live. */
   const GESTURE_STOPS = ['opacity', 'zoom'];
+  // What a single press does on each stop. ZOOM is deliberately inert: a press
+  // is easy to fire by accident with the remote, and resetting the alignment
+  // discards both the zoom and the pan. Reset therefore lives on the Fit image
+  // button only (and unlocking still allows a free pinch-zoom).
+  const STOP_PRESS = { opacity: 'peek', zoom: 'none' };
   const GESTURE_HOME_MS = 20000;   // idle before the dial returns to OPACITY
   const SWIPE_REPEAT_MS = 600;     // same-direction swipes inside this accelerate
   // ZOOM's per-swipe steps, finest first. The rung is chosen by how many
@@ -712,8 +717,8 @@
     requestRender();
   }
 
-  /* A plain fit: recentre on the image and drop any pan (session start, the Fit
-     button and ZOOM's press action all land here). */
+  /* A plain fit: recentre on the image and drop any pan (session start and the
+     Fit image button land here). */
   function fit() { applyAlign(true); }
 
   /* The alignment band, centred on the zoom that was in effect when the dial
@@ -764,8 +769,8 @@
     setAlignScale(alignScale * Math.pow(1 + ZOOM_STEPS[i], dir));
   }
 
-  /* Reset the alignment (and the pan) to a plain fit. The Fit button and ZOOM's
-     press action both land here. */
+  /* Reset the alignment (and the pan) to a plain fit. Deliberately reachable
+     only from the Fit image button - never from a gesture (see STOP_PRESS). */
   function fitReset() {
     alignScale = 1;
     alignSeed = 1;
@@ -2579,9 +2584,9 @@
   function runGestureEffect(ef) {
     if (ef.kind === 'stop') { gestureChipOpen(); return; }
     if (ef.kind === 'press') {
-      if (ef.stop === 'zoom') fitReset();   // ZOOM: reset the alignment
-      else peekHide();                      // OPACITY: peek / restore (unchanged)
-      gestureChipOpen();
+      // only OPACITY acts on a press; ZOOM is inert (see STOP_PRESS), so this is
+      // a true no-op - not even the chip expands
+      if (STOP_PRESS[ef.stop] === 'peek') { peekHide(); gestureChipOpen(); }
       return;
     }
     if (ef.kind === 'step') {
@@ -2657,9 +2662,11 @@
         : Math.round(alpha * 100) + '%';
     }
     if (els.dialHint) {
-      els.dialHint.textContent = I18N.t(zoom ? 'dialSwipeZoom' : 'dialSwipeOpacity') +
-        '  \u00b7  ' + I18N.t(zoom ? 'dialPressZoom' : 'dialPressOpacity') +
-        '  \u00b7  ' + I18N.t('dialSwap');
+      // ZOOM has no press action, so its hint omits that segment entirely
+      const hint = [I18N.t(zoom ? 'dialSwipeZoom' : 'dialSwipeOpacity')];
+      if (!zoom) hint.push(I18N.t('dialPressOpacity'));
+      hint.push(I18N.t('dialSwap'));
+      els.dialHint.textContent = hint.join('  \u00b7  ');
     }
   }
 
@@ -3085,7 +3092,7 @@
       computeHomography, invert3, applyHomography,
       splitFeedZoom,
       gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS,
-      alignBand, clampAlign, alignView,
+      STOP_PRESS, alignBand, clampAlign, alignView,
     },
   };
 

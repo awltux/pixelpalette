@@ -303,13 +303,16 @@ existing `hideTap` path, **not** as keyboard input.
 | Stop | swipe up / down | press |
 | --- | --- | --- |
 | `OPACITY` (home) | overlay ±10% | peek / restore *(unchanged)* |
-| `ZOOM` | fine image scale, ±0.5% | reset to fit |
+| `ZOOM` | fine image scale (`ZOOM_STEPS` rungs) | **nothing** — deliberately inert |
 
 - **Double-press swaps which stop the remote drives** — a role swap, not a long
   carousel walk. The on-screen chip prints both roles and highlights the active
   one, so what the remote will do is never guessed.
-- Press is *not* mode-specific everywhere: peek keeps press on `OPACITY`, the
-  adjust stop gets reset. (Decided with the user.)
+- Press is *not* mode-specific everywhere: peek keeps press on `OPACITY`, and the
+  `ZOOM` stop ignores press entirely (`STOP_PRESS`). Reset was removed from the
+  gesture path because it is far too easy to fire by accident with the remote,
+  and it discards **both** the zoom and the pan. Reset is the **Fit image**
+  button's job (or unlock and pinch-zoom).
 - A double press defers the single-press action by `DOUBLE_PRESS_MS` (~300) so a
   deliberate double press can't fire two peeks. A *stray* double press is
   self-cancelling, because `peekHide()` is a toggle; two deliberate peeks are
@@ -340,6 +343,9 @@ The dial is live in `src/js/tracing.js`:
 - `gestureContext()` returns `'flat'` when `active && locked && arMode === 'off'`
   and `null` otherwise; when it is null the chip is hidden and gestures are
   dropped. It is the single place that decides which stop list is live.
+- `STOP_PRESS` declares each stop's press action (`opacity` → `peek`, `zoom` →
+  `none`), and a test asserts every stop declares one — so a future stop cannot
+  silently inherit something destructive.
 - Hooks: `onLockedEnd` now feeds `gestureApply({type:'press'|'swipe'})` instead
   of calling `peekHide()` / `setAlpha()` directly. Ticks come from
   `gestureSchedule()`, armed **only** while a deferred press or an auto-home is
@@ -348,7 +354,8 @@ The dial is live in `src/js/tracing.js`:
   `applyAlign()` recomputes the fit base from the current viewport every time, so
   a rotation cannot leave a stale base; at the default `alignScale = 1` it is
   byte-identical to the old `fit()`. `fitReset()` (align 1 + refit) is what the
-  **Fit image** button and ZOOM's press action both call.
+  **Fit image** button. `fitReset()` is reachable *only* from that button — never
+  from a gesture.
 - **The alignment band is seeded from the live view on Lock**
   (`seedAlignFromView`, called from `setLocked(true)`). This fixes a real bug:
   `alignScale` is anchored to the *fit* scale, but the unlocked view can be
@@ -365,7 +372,7 @@ The dial is live in `src/js/tracing.js`:
 - **Zoom steps never move the image** (`alignView`): `cx`/`cy` name the image
   point shown at the screen centre, so an alignment step changes only the scale
   and that point stays fixed. Only a *plain fit* (`applyAlign(true)`: session
-  start, the **Fit image** button, ZOOM's press action) recentres on the image
+  start, the **Fit image** button) recentres on the image
   and discards the pan — which is the one thing entitled to throw away a pan the
   user set while unlocked.
 - Chip: `#project-dial` in `src/index.html`, `.project-dial` in `app.css`,

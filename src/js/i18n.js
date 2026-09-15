@@ -69,7 +69,6 @@
       dialSwipeOpacity: 'swipe: opacity \u00b1 10%',
       dialSwipeZoom: 'swipe: fine zoom',
       dialPressOpacity: 'press: peek',
-      dialPressZoom: 'press: reset',
       dialSwap: 'double press: switch',
       hudHide: 'Hide',
       hudShow: 'Menu',

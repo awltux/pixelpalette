@@ -471,6 +471,18 @@ test('an alignment zoom keeps the pan; only a plain fit recentres the image', ()
   assert.equal(fitted.cy, 500);
 });
 
+test('a press is inert on the ZOOM stop, so the reset cannot fire by accident', () => {
+  const { STOP_PRESS, GESTURE_STOPS } = loadTracing();
+  const press = host(STOP_PRESS);
+  assert.equal(press.opacity, 'peek', 'OPACITY still peeks on a press');
+  assert.equal(press.zoom, 'none', 'ZOOM has no press action');
+  // every stop must declare its behaviour, so a new stop cannot silently
+  // inherit a destructive default
+  for (const stop of host(GESTURE_STOPS)) {
+    assert.ok(press[stop], `stop "${stop}" declares a press action`);
+  }
+});
+
 test('the ZOOM ladder starts at a 0.1% step and climbs monotonically', () => {
   const { ZOOM_STEPS } = loadTracing();
   const steps = host(ZOOM_STEPS);
