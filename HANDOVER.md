@@ -317,6 +317,12 @@ The dial is live in `src/js/tracing.js`:
   to 1 first, so a large session zoom is not carried into the next session (only
   an in-band fine factor is restored — anything outside the fit-centred band is
   rejected on load).
+- **Zoom steps never move the image** (`alignView`): `cx`/`cy` name the image
+  point shown at the screen centre, so an alignment step changes only the scale
+  and that point stays fixed. Only a *plain fit* (`applyAlign(true)`: session
+  start, the **Fit image** button, ZOOM's press action) recentres on the image
+  and discards the pan — which is the one thing entitled to throw away a pan the
+  user set while unlocked.
 - Chip: `#project-dial` in `src/index.html`, `.project-dial` in `app.css`,
   strings in `i18n.js`. It is `pointer-events: none`, so it can never steal a
   gesture and needed **no** `overHud` change. It expands for `DIAL_HOLD_MS` after

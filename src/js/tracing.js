@@ -681,22 +681,40 @@
   }
 
   /* ---------- view actions ---------- */
+  /* The view an alignment change should produce. Only the scale changes: `cx`/
+     `cy` name the image point shown at the screen centre, so leaving them alone
+     keeps that point exactly where it is and a fine-zoom step cannot move the
+     image. `recentre` (a plain fit) puts it back at the image centre, which is
+     the only thing that is allowed to discard a pan. */
+  function alignView(v, scale, recentre, imgW, imgH) {
+    return {
+      scale: scale,
+      cx: recentre ? imgW / 2 : v.cx,
+      cy: recentre ? imgH / 2 : v.cy,
+    };
+  }
+
   /* Fit the image to the screen and apply the fine alignment zoom on top. The
      base fit is recomputed from the current viewport every time (never cached),
-     so a rotation cannot leave a stale base behind. With the default
-     `alignScale` of 1 this is exactly the old behaviour. */
-  function applyAlign() {
+     so a rotation cannot leave a stale base behind. Only a plain fit
+     (`recentre`) moves the image; alignment steps keep whatever pan the user
+     set before locking. */
+  function applyAlign(recentre) {
     const img = imageInfo();
     if (!img) { requestRender(); return; }
     const f = computeFit(img.width, img.height, cssW, cssH, 24);
     const base = Math.max(0.05, Math.min(4, f.scale));
-    view.scale = clampScale(base * alignScale);
-    view.cx = img.width / 2;
-    view.cy = img.height / 2;
+    const next = alignView(view, clampScale(base * alignScale), recentre, img.width, img.height);
+    view.scale = next.scale;
+    view.cx = next.cx;
+    view.cy = next.cy;
+    clampCentre();
     requestRender();
   }
 
-  function fit() { applyAlign(); }
+  /* A plain fit: recentre on the image and drop any pan (session start, the Fit
+     button and ZOOM's press action all land here). */
+  function fit() { applyAlign(true); }
 
   /* The alignment band, centred on the zoom that was in effect when the dial
      took over. `alignScale` is anchored to the fit-to-screen scale, so seeding
@@ -716,10 +734,11 @@
     return Math.max(b.lo, Math.min(b.hi, v));
   }
 
-  /* Set the alignment zoom (clamped to the active band) and re-apply it. */
+  /* Set the alignment zoom (clamped to the active band) and re-apply it. The
+     pan is deliberately left alone, so a ZOOM gesture can never move the image. */
   function setAlignScale(v, persist) {
     alignScale = clampAlign(v, alignSeed);
-    applyAlign();
+    applyAlign(false);
     if (persist !== false) savePrefs();
     gestureChipSync();
   }
@@ -750,7 +769,7 @@
   function fitReset() {
     alignScale = 1;
     alignSeed = 1;
-    applyAlign();
+    applyAlign(true);
     savePrefs();
     gestureChipSync();
   }
@@ -3066,7 +3085,7 @@
       computeHomography, invert3, applyHomography,
       splitFeedZoom,
       gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS,
-      alignBand, clampAlign,
+      alignBand, clampAlign, alignView,
     },
   };
 

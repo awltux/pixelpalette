@@ -457,6 +457,20 @@ test('the alignment band is seeded from the live view and never snaps the zoom',
   assert.equal(clampAlign(NaN, NaN), 1);
 });
 
+test('an alignment zoom keeps the pan; only a plain fit recentres the image', () => {
+  const { alignView } = loadTracing();
+  // a view the user panned while unlocked, then a fine-zoom step on top: the
+  // image point shown at the screen centre must not move
+  const stepped = host(alignView({ scale: 1, cx: 300, cy: 200 }, 2, false, 1600, 1000));
+  assert.equal(stepped.scale, 2, 'the scale changed');
+  assert.equal(stepped.cx, 300, 'the point at the screen centre is unchanged');
+  assert.equal(stepped.cy, 200);
+  // a plain fit is the only thing allowed to discard the pan
+  const fitted = host(alignView({ scale: 2, cx: 300, cy: 200 }, 1, true, 1600, 1000));
+  assert.equal(fitted.cx, 800);
+  assert.equal(fitted.cy, 500);
+});
+
 test('the ZOOM ladder starts at a 0.1% step and climbs monotonically', () => {
   const { ZOOM_STEPS } = loadTracing();
   const steps = host(ZOOM_STEPS);
