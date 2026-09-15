@@ -471,6 +471,25 @@ test('an alignment zoom keeps the pan; only a plain fit recentres the image', ()
   assert.equal(fitted.cy, 500);
 });
 
+test('a swipe counts on either axis, and the sign carries the direction', () => {
+  const { swipeAxis, swipeStep } = loadTracing();
+  // one axis must clearly dominate, and travel far enough
+  assert.equal(swipeAxis(-5, -80), 'y', 'a vertical swipe');
+  assert.equal(swipeAxis(-80, -5), 'x', 'the remote double press is a swipe left');
+  assert.equal(swipeAxis(30, 30), '', 'a diagonal is neither tap nor swipe');
+  assert.equal(swipeAxis(0, -20), '', 'too short to count');
+  assert.equal(swipeAxis(0, 0), '');
+  // direction: toward up/right is +, toward down/left is -
+  assert.equal(swipeStep('y', 0, -80), 1, 'up = +');
+  assert.equal(swipeStep('y', 0, 80), -1, 'down = -');
+  assert.equal(swipeStep('x', 80, 0), 1, 'right = +');
+  assert.equal(swipeStep('x', -80, 0), -1, 'left = - (the remote double press)');
+  // a swipe that comes back to the origin applies nothing, and travel that was
+  // never classified has no step at all
+  assert.equal(swipeStep('y', 0, -5), 0);
+  assert.equal(swipeStep('', 0, -80), 0);
+});
+
 test('the ladder window spans a deliberate swipe pace, not a key-repeat one', () => {
   const { GESTURE_TIMING } = loadTracing();
   const t = host(GESTURE_TIMING);

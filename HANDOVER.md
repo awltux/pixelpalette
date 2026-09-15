@@ -126,11 +126,15 @@ Recent, newest-first:
   (attached in `init` to `global`). The canvas `onPointerMove`/`onPointerEnd`
   deliberately do **not** handle the locked gesture (a locked pointer is never
   added to `pointers`).
-- A **completed vertical swipe** (net `|dy| ≥ SWIPE_PX/2`, recognised when
-  `|dy| > 1.5·|dx|` and `|dy| ≥ SWIPE_PX`) applies **one** `SWIPE_ALPHA_STEP`
-  (0.1): up = +, down = −. It does **not** scrub proportionally.
+- A **completed swipe on either axis** — one axis dominant at >1.5× the other,
+  travel ≥ `SWIPE_PX`, and ≥ `SWIPE_PX/2` net at release — feeds the gesture dial
+  as **one** step: toward up/right = +, toward down/left = −. It does **not**
+  scrub proportionally. Both axes count because the Bluetooth remote encodes
+  direction by press count: **a single press emits a swipe up, a double press a
+  swipe left**, so assuming a vertical "down" for "less" leaves the stop
+  one-directional on the real hardware. See §11.
 - Constants near the top: `HIDE_TAP_SLOP=12`, `HIDE_TAP_MS=400`, `SWIPE_PX=40`,
-  `SWIPE_ALPHA_STEP=0.1`.
+  `SWIPE_ALPHA_STEP=0.1` (OPACITY's step; ZOOM uses `ZOOM_STEPS`).
 - Grid spacing while locked: `setGridCell` early-returns if `locked`, and the
   row gets `.is-locked` with `pointer-events:none`.
 - Exit button now opens `#project-exit-confirm` (`openExitConfirm` /
@@ -313,6 +317,14 @@ existing `hideTap` path, **not** as keyboard input.
   gesture path because it is far too easy to fire by accident with the remote,
   and it discards **both** the zoom and the pan. Reset is the **Fit image**
   button's job (or unlock and pinch-zoom).
+- **Swipes count on either axis** (`swipeAxis` / `swipeStep`, §5). The remote's
+  buttons encode direction by press count — a single press emits a swipe *up*, a
+  double press a swipe *left* — so a vertical-only classifier would leave every
+  stop one-directional on the actual hardware. The cost: a stray horizontal swipe
+  (the remote turning a too-quick double press into a left/right) now nudges the
+  value instead of being ignored. That is acceptable because it is a small,
+  reversible step — unlike the reset, which was removed from the gesture path for
+  exactly that reason.
 - A double press defers the single-press action by `DOUBLE_PRESS_MS` (~300) so a
   deliberate double press can't fire two peeks. A *stray* double press is
   self-cancelling, because `peekHide()` is a toggle; two deliberate peeks are

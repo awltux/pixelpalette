@@ -2675,6 +2675,30 @@
     }
   }
 
+  /* Classify a locked press by its net travel. Either axis counts, because the
+     Bluetooth remote's buttons encode direction by press count - a single press
+     emits a swipe up, a double press a swipe left - so "less" may arrive on the
+     horizontal axis. One axis must clearly dominate (1.5x) and travel at least
+     SWIPE_PX, so a diagonal wobble is still neither a tap nor a swipe. Returns
+     'y', 'x' or '' . */
+  function swipeAxis(dx, dy) {
+    const ax = Math.abs(dx), ay = Math.abs(dy);
+    if (ay > ax * 1.5 && ay >= SWIPE_PX) return 'y';
+    if (ax > ay * 1.5 && ax >= SWIPE_PX) return 'x';
+    return '';
+  }
+
+  /* The step sign a completed swipe applies, or 0 if it came back: toward
+     up/right = +1, toward down/left = -1. Measured from the net travel at
+     release, so a swipe that returns to the origin applies nothing. */
+  function swipeStep(axis, dx, dy) {
+    if (!axis) return 0;
+    const along = axis === 'x' ? dx : dy;
+    if (Math.abs(along) < SWIPE_PX / 2) return 0;
+    if (axis === 'x') return along > 0 ? 1 : -1;
+    return along < 0 ? 1 : -1;
+  }
+
   /* While locked, a press on the projection surface (anywhere off the HUD)
      starts a peek/swipe: a quick tap peeks the reference away, a vertical
      swipe applies ONE discrete opacity step (up = more opaque, down = more
@@ -2687,7 +2711,7 @@
     if (overHud(e)) { gdbgSkip('over the HUD'); return false; }
     e.preventDefault();
     els.canvas.setPointerCapture(e.pointerId);
-    hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none' };
+    hideTap = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, mode: 'none', axis: '' };
     gdbgPressStart();
     return true;
   }
@@ -2698,13 +2722,13 @@
     const dy = e.clientY - hideTap.y0;
     const dist = Math.hypot(dx, dy);
     if (gdbgPress) gdbgPress.peak = Math.max(gdbgPress.peak, dist);
-    // recognise a swipe only when the drag is clearly vertical and far enough.
-    // We don't scrub opacity live here - the step is applied once, on release.
-    if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP &&
-      Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) >= SWIPE_PX) {
-      hideTap.mode = 'swipe';
-    } else if (dist > HIDE_TAP_SLOP) {
-      hideTap.moved = true; // a non-swipe drag is neither tap nor swipe
+    // recognise a swipe once one axis clearly dominates and travel is far enough
+    // (either axis - see swipeAxis). We don't scrub the value live here - the
+    // step is applied once, on release.
+    if (hideTap.mode === 'none' && dist > HIDE_TAP_SLOP) {
+      const axis = swipeAxis(dx, dy);
+      if (axis) { hideTap.mode = 'swipe'; hideTap.axis = axis; }
+      else hideTap.moved = true;   // neither a tap nor a swipe
     }
     e.preventDefault(); // keep a vertical drag from scrolling/zooming the page
   }
@@ -2725,11 +2749,15 @@
       gestureApply({ type: 'press', now: Date.now() });
       return;
     }
-    // one completed vertical swipe = one step of whichever stop is selected
+    // one completed swipe = one step of whichever stop is selected
     if (tap.mode === 'swipe') {
-      if (dy <= -SWIPE_PX / 2) { gdbgFinish(tap, e, 'swipe +1'); gestureApply({ type: 'swipe', dir: 1, now: Date.now() }); }   // swiped up
-      else if (dy >= SWIPE_PX / 2) { gdbgFinish(tap, e, 'swipe -1'); gestureApply({ type: 'swipe', dir: -1, now: Date.now() }); } // swiped down
-      else gdbgFinish(tap, e, 'no step (dy small)');
+      const dir = swipeStep(tap.axis, dx, dy);
+      if (dir) {
+        gdbgFinish(tap, e, 'swipe ' + tap.axis + (dir > 0 ? '+' : '-'));
+        gestureApply({ type: 'swipe', dir: dir, now: Date.now() });
+      } else {
+        gdbgFinish(tap, e, 'no step (returned)');
+      }
       return;
     }
     gdbgFinish(tap, e, '');
@@ -3097,7 +3125,7 @@
       computeHomography, invert3, applyHomography,
       splitFeedZoom,
       gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS,
-      STOP_PRESS, alignBand, clampAlign, alignView,
+      STOP_PRESS, alignBand, clampAlign, alignView, swipeAxis, swipeStep,
     },
   };
 
