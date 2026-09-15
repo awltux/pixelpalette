@@ -471,6 +471,18 @@ test('an alignment zoom keeps the pan; only a plain fit recentres the image', ()
   assert.equal(fitted.cy, 500);
 });
 
+test('the ladder window spans a deliberate swipe pace, not a key-repeat one', () => {
+  const { GESTURE_TIMING } = loadTracing();
+  const t = host(GESTURE_TIMING);
+  // The remote emits one up/down swipe per button gesture, and turns short
+  // intervals between button presses into left/right swipes - so repeated
+  // same-direction swipes cannot be fired rapidly. Lowering this window back to
+  // a "key repeat" figure silently disables the ladder on the real hardware.
+  assert.ok(t.repeatMs >= 2500,
+    `repeatMs ${t.repeatMs} is too short for the remote to space swipes out`);
+  assert.ok(t.repeatMs > t.doublePressMs, 'the ladder window must exceed the press window');
+});
+
 test('a press is inert on the ZOOM stop, so the reset cannot fire by accident', () => {
   const { STOP_PRESS, GESTURE_STOPS } = loadTracing();
   const press = host(STOP_PRESS);

@@ -105,7 +105,12 @@
   // button only (and unlocking still allows a free pinch-zoom).
   const STOP_PRESS = { opacity: 'peek', zoom: 'none' };
   const GESTURE_HOME_MS = 20000;   // idle before the dial returns to OPACITY
-  const SWIPE_REPEAT_MS = 600;     // same-direction swipes inside this accelerate
+  // Same-direction swipes closer together than this climb the ladder. It has to
+  // be LONG: the Bluetooth remote emits one up/down swipe per button gesture and
+  // turns *short* intervals between button presses into left/right swipes, so a
+  // rapid run of same-direction swipes is impossible by design. The window must
+  // therefore span a deliberate, spaced-out pace (~1-3 s), not a key-repeat one.
+  const SWIPE_REPEAT_MS = 3000;
   // ZOOM's per-swipe steps, finest first. The rung is chosen by how many
   // same-direction swipes just went by in a run: an isolated swipe is the
   // finest correction, and each rapid repeat moves up a rung. OPACITY ignores

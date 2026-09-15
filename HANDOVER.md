@@ -318,12 +318,15 @@ existing `hideTap` path, **not** as keyboard input.
   self-cancelling, because `peekHide()` is a toggle; two deliberate peeks are
   normally further apart than the window.
 - One completed swipe = one step; consecutive same-direction swipes within
-  `SWIPE_REPEAT_MS` (600 ms) climb the `ZOOM_STEPS` rung ladder — **0.1%, 0.5%,
-  1%, 2%**, finest first, so an isolated swipe is the finest correction and a
-  rapid run travels. Only ZOOM climbs it; OPACITY keeps its fixed ±10%. The
-  remote's swipe *length* is fixed by the hardware, so length-based coarse/fine
-  is unusable; repeat does the job, and the short window means the ladder only
-  engages on a deliberate rapid run.
+  `SWIPE_REPEAT_MS` (**3000 ms**) climb the `ZOOM_STEPS` rung ladder — **0.1%,
+  0.5%, 1%, 2%**, finest first, so an isolated swipe is the finest correction and
+  a deliberate run travels. Only ZOOM climbs it; OPACITY keeps its fixed ±10%.
+  The window is long on purpose: **the remote emits one up/down swipe per button
+  gesture and turns short intervals between button presses into left/right
+  swipes**, so a rapid run of same-direction swipes is impossible — the window
+  has to span a spaced-out pace (~1–3 s), not a key-repeat one. (An unintended
+  left/right swipe is harmless: it fails the "clearly vertical" test and is
+  classified as a drag, so nothing happens.)
 - **Auto-home** to `OPACITY` after ~20 s idle, so a stray swipe does the
   harmless thing. Every gesture persists to prefs, which is why this matters.
 - Tight zoom range (~0.85–1.30) so a stray gesture cannot lose the image.
@@ -384,7 +387,8 @@ The dial is live in `src/js/tracing.js`:
 
 Constants (all in `tracing.js`, all still *guesses* except what the Phase 0 probe
 validates): `DOUBLE_PRESS_MS 300`, `GESTURE_HOME_MS 20000`,
-`SWIPE_REPEAT_MS 600`, `ZOOM_STEPS [0.001, 0.005, 0.01, 0.02]` (the rung ladder;
+`SWIPE_REPEAT_MS 3000` (long: the remote cannot fire same-direction swipes
+rapidly), `ZOOM_STEPS [0.001, 0.005, 0.01, 0.02]` (the rung ladder;
 `SWIPE_REPEAT_MAX` is derived from its length), `ALIGN_MIN 0.85` / `ALIGN_MAX 1.30`
 (a band *relative to the seed*, so 0.85–1.30 of wherever the zoom was on Lock),
 `DIAL_HOLD_MS 2000`.
