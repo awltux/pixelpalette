@@ -226,6 +226,16 @@ wrong probe.
   `dist/index.html` inside the test** (the new SW/version test does this).
 - Sandbox/`child_process` output capture is blocked (EPERM); see §4.
 - CRLF warnings from git on every `add` are benign (LF in working copy).
+- **Keep pointer maths in ONE coordinate space.** `pinchStep` in `canvas.js` is
+  the cautionary tale: the two-finger pan delta combined a *client* midpoint with
+  a canvas-relative one, so every pinch move event panned by the canvas's left
+  offset (once per event, ~60/s) and the image walked off-screen — horizontally
+  only, because the Y term happened to be correct. Handlers here legitimately use
+  both spaces: single-finger `panLast` deltas are client-to-client (the rect
+  cancels), while `zoomAt`, `pan` and `Reticle` all want canvas-local.
+  `tracing.js` gets this right by computing one local `mid` and reusing it, and
+  `test/canvas.test.mjs` now pins the invariant (the pan delta must not depend on
+  `rect.left` / `rect.top`).
 - **Adding a `src/js/` file needs more than one edit.** The build takes the load
   order from `src/index.html`, so the file needs its `<script>` tag there *and*
   a matching entry in the `ORDER` array in `test/smoke.test.mjs`, which asserts

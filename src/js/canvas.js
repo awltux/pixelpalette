@@ -194,6 +194,28 @@
   function rectLeft() { return canvas.getBoundingClientRect().left; }
   function rectTop() { return canvas.getBoundingClientRect().top; }
 
+  /* Two-finger gesture maths, in one coordinate space. The scale factor and the
+     pan delta are both derived from a single canvas-relative midpoint, so they
+     cannot disagree about where they are: mixing client and canvas-local
+     coordinates here made every pinch event pan by the canvas's left offset,
+     which walked the image off-screen to the right. `rect` is the canvas rect
+     and `last` the previous step (or null on the first move). */
+  function pinchStep(pts, rect, last) {
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    const mid = {
+      x: (pts[0].x + pts[1].x) / 2 - rect.left,
+      y: (pts[0].y + pts[1].y) / 2 - rect.top,
+    };
+    const hasLast = !!(last && last.mid);
+    return {
+      dist: dist,
+      mid: mid,
+      factor: (last && last.dist > 0) ? dist / last.dist : 1,
+      dx: hasLast ? mid.x - last.mid.x : 0,
+      dy: hasLast ? mid.y - last.mid.y : 0,
+    };
+  }
+
   function handlePointerMove(e) {
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -209,18 +231,14 @@
         pan(dx, dy);
       }
     } else if (pointers.size === 2) {
-      const pts = [...pointers.values()];
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
-      if (pinchLast && pinchLast.dist > 0 && !locked) {
-        const factor = dist / pinchLast.dist;
-        zoomAt(mid.x - rectLeft(), mid.y - rectTop(), factor);
+      const step = pinchStep([...pointers.values()], canvas.getBoundingClientRect(), pinchLast);
+      if (pinchLast && !locked) {
+        if (step.factor !== 1) zoomAt(step.mid.x, step.mid.y, step.factor);
+        // two-finger drag pans the view, but only when the midpoint actually
+        // moved - a symmetric pinch must not translate anything
+        if (panLast === null && (step.dx !== 0 || step.dy !== 0)) pan(step.dx, step.dy);
       }
-      if (pinchLast && panLast === null && !locked) {
-        const mx = mid.x - rectLeft(), my = mid.y - rectTop();
-        pan(mid.x - pinchLast.mid.x, my - pinchLast.mid.y);
-      }
-      pinchLast = { dist, mid: { x: mid.x - rectLeft(), y: mid.y - rectTop() } };
+      pinchLast = { dist: step.dist, mid: step.mid };
     }
     e.preventDefault();
   }
@@ -281,6 +299,8 @@
     getSize: () => ({ w: cssW, h: cssH }),
     worldFromScreen,
     screenFromWorld,
+    /* testable internals */
+    __internal: { pinchStep, clampScale },
   };
 
   global.CP = global.CP || {};
