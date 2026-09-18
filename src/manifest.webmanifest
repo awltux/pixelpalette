@@ -1,0 +1,27 @@
+{
+  "name": "Pixel Palette",
+  "short_name": "Pixel Palette",
+  "description": "Pick exact colours from any image and mix them from real paint palettes with Kubelka–Munk physics. Oil, acrylic, watercolour, gouache and pencils.",
+  "id": "pixelpalette",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#111318",
+  "theme_color": "#111318",
+  "categories": ["graphics", "utilities"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

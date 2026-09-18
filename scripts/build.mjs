@@ -127,6 +127,22 @@ function build() {
     copied++;
   }
 
+  // --- copy the assets/ directory (og-image.svg, favicon.svg) into dist/assets ---
+  // The favicon is inlined into the HTML above, but other assets (e.g. the
+  // social-share og-image.svg referenced by og:image) must ship as real files
+  // so the absolute production URLs resolve.
+  const assetsSrc = resolve(SRC, 'assets');
+  if (existsSync(assetsSrc)) {
+    const assetsDest = resolve(DIST, 'assets');
+    mkdirSync(assetsDest, { recursive: true });
+    for (const name of readdirSync(assetsSrc)) {
+      const from = resolve(assetsSrc, name);
+      if (!statSync(from).isFile()) continue;
+      copyFileSync(from, resolve(assetsDest, name));
+      copied++;
+    }
+  }
+
   // --- stamp + emit the service worker (offline caching) ---
   const swTemplate = readFileSync(resolve(SRC, 'sw.js'), 'utf8');
   const sw = swTemplate.split(BUILD_HASH_PLACEHOLDER).join(hash);
