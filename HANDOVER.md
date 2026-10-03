@@ -24,7 +24,7 @@ art, greyscale and surface pinning (simplified AR).
 
 ```sh
 npm run build        # build dist/ (Node only, zero deps)
-npm test             # full suite: node --test --test-isolation=none  (currently 125 pass)
+npm test             # full suite: node --test --test-isolation=none  (144 at the time of writing)
 npm run host         # serve dist/ (defaults 8080 if run directly)
 npm run build:watch  # rebuild on src/ changes
 npm run dev          # build:watch + host together (hosts 8081; PORT= to change)
@@ -50,11 +50,16 @@ Run one test file: `node --test --test-isolation=none test/tracing.test.mjs`
 - `dist/index.html` — the bundle (do not edit by hand)
 - `dist/sw.js` — service worker, **stamped with the current commit hash**
 - `dist/version.json` — `{ "build": "<7-hex-hash>", "builtAt": "<ISO>" }`
-- `dist/robots.txt`, `dist/sitemap.xml` — copied from `src/`
+- **every top-level static file in `src/`**, copied verbatim — today that is
+  `robots.txt`, `sitemap.xml`, `manifest.webmanifest`, `icon-192.png`,
+  `icon-512.png`
+- **`src/assets/` → `dist/assets/`** — `favicon.svg` (also inlined into the HTML)
+  and `og-image.svg`, which the og:image / twitter:image tags need as real files
 
 `dist/` is in `.gitignore`; it is a regenerable artifact. **Deploy the whole
-`dist/` folder**, not just `index.html` (the latter breaks offline + update
-checks).
+`dist/` folder**, not just `index.html` — a partial deploy breaks the offline
+shell and the update check, and leaving out the manifest/icons silently loses
+the installable-PWA behaviour.
 
 ## 3. Architecture & conventions (important)
 
@@ -284,12 +289,13 @@ wrong probe.
 ## 8. Verification checklist before saying "done"
 
 ```sh
-npm run build     # must exit 0, "Built … (… KB, 21 JS files inlined …)"
-npm test          # expect 125 pass, 0 fail
+npm run build     # must exit 0, "Built … (… KB, 21 JS files inlined + 7 static file(s))"
+npm test          # expect 0 fail (144 at the time of writing)
 ```
 
 Then spot-check `dist/` contains `index.html`, `sw.js`, `version.json`,
-`robots.txt`, `sitemap.xml`, and grep that no `__GIT_SHA__` remains:
+`robots.txt`, `sitemap.xml`, `manifest.webmanifest`, `icon-192.png`,
+`icon-512.png` and `assets/`, and grep that no `__GIT_SHA__` remains:
 
 ```sh
 Select-String -Path dist/index.html,dist/sw.js -Pattern '__GIT_SHA__'   # expect no matches
@@ -310,8 +316,14 @@ Select-String -Path dist/index.html,dist/sw.js -Pattern '__GIT_SHA__'   # expect
 - Consider a small **DOM harness test** for `initUpdateCheck()` (banner shown
   when `version.json` differs; not shown when offline) if you extend
   `test/helpers/env.mjs` with `fetch`/`navigator.onLine`.
-- Optional, previously declined: full **installable PWA** (web manifest +
-  icons). The user chose service-worker offline only, no manifest.
+- **PWA install is now implemented** (commit `26c3892`), so this is no longer a
+  "previously declined" idea: `src/manifest.webmanifest` (standalone,
+  `start_url: ./index.html`, 192/512 PNG icons) plus an `apple-touch-icon`, both
+  linked from the shell, and the build copies them into `dist/` (§2). What is
+  left is *verification*, not code: install it from the deployed HTTPS host and
+  confirm it opens standalone and still works offline. Note the icons are NOT
+  precached by the worker — they are just same-origin files under the app scope,
+  so they enter the cache on first use (stale-while-revalidate, §6).
 - Watch the mobile vertical-swipe gesture: if a real device still steals the
   swipe as a page scroll (`pointercancel`), scope `touch-action: none` to the
   locked projection surface.
