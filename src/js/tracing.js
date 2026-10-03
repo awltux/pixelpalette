@@ -63,6 +63,18 @@
   let feedSensorQueued = 0;  // timeout id for coalesced applyConstraints
   let feedSensorPending = 0; // latest sensor value waiting to be applied
   let feedSensorImageCapture = null; // keep an ImageCapture alive for zoom caps
+  // ---- camera focus ----
+  // Locking the image also holds the lens, so the feed stops hunting/breathing
+  // while the artist traces. Only some devices expose this (Chrome on Android;
+  // not desktop Chrome, not iOS Safari). `focusModes` is the live track's
+  // capability list (null = unknown/unsupported); it is never persisted, because
+  // it can differ per camera, so it is re-probed for every new stream.
+  let focusModes = null;
+  let focusLocked = false;
+  let focusNoticeShown = false;  // the unsupported notice is once per session
+  let statusTimer = 0;
+  const FOCUS_LOCK = 'manual';      // hold the lens where it is
+  const FOCUS_AUTO = 'continuous';  // normal autofocus
   const FEED_MAX = 10;
   // how coarse/fine each zoom step is. Multiplicative per click; 1.10 =
   // ~10% per click (finer than the previous 1.35). Wheel uses a weaker
@@ -851,6 +863,89 @@
   // recompute the CSS scale actually applied to the <video> and (re)issue the
   // sensor zoom constraint, coalesced so rapid zoom gestures don't spam it.
   // Callers must call applyFeedTransform() after layout is ready.
+  /* Which focus mode the current lock state wants, or null when this device
+     cannot do it. `single-shot` deliberately does not count: it refocuses once
+     rather than holding, so accepting it would be claiming a lock we do not
+     have. `modes` is the track's capability list. */
+  function focusModeFor(modes, locked) {
+    if (!modes || !modes.length) return null;
+    const want = locked ? FOCUS_LOCK : FOCUS_AUTO;
+    return modes.indexOf(want) >= 0 ? want : null;
+  }
+
+  /* The complete set of advanced camera constraints we manage, built from state.
+     It is always applied whole: whether a new `advanced` list merges with, or
+     replaces, the previously applied one is engine-dependent, so sending a
+     partial set risks one control silently clobbering the other (locking focus
+     would reset a sensor zoom the user had dialled in). */
+  function cameraAdvancedSet(state) {
+    const adv = {};
+    if (state && typeof state.zoom === 'number' && isFinite(state.zoom)) adv.zoom = state.zoom;
+    if (state && state.focusMode) adv.focusMode = state.focusMode;
+    return Object.keys(adv).length ? { advanced: [adv] } : null;
+  }
+
+  /* Apply a constraint set to a track. Returns the apply promise, or null when
+     there is nothing to apply to. `advanced` constraints are best-effort by
+     design, so callers swallow rejection instead of failing the session. */
+  function applyCameraConstraints(track, set) {
+    if (!track || !track.applyConstraints || !set) return null;
+    try {
+      const p = track.applyConstraints(set);
+      return (p && p.then) ? p : null;
+    } catch (e) { return null; }
+  }
+
+  function videoTrack() {
+    if (!stream || !stream.getVideoTracks) return null;
+    return stream.getVideoTracks()[0] || null;
+  }
+
+  /* Show a short message on the projection status line. `persist` leaves it up -
+     used while the lens is held, so the artist can see at a glance that the
+     focus is frozen - otherwise it clears itself. */
+  function setStatus(msg, persist) {
+    if (!els || !els.status) return;
+    if (statusTimer) { clearTimeout(statusTimer); statusTimer = 0; }
+    els.status.textContent = msg || '';
+    if (msg && !persist) {
+      statusTimer = setTimeout(() => {
+        statusTimer = 0;
+        if (els && els.status) els.status.textContent = '';
+      }, 2000);
+    }
+  }
+
+  function noticeFocusUnsupported() {
+    if (focusNoticeShown) return;
+    focusNoticeShown = true;
+    toast(I18N.t('traceFocusUnsupported'));
+  }
+
+  /* Hold or release the lens with the image lock. Only complains when a lock was
+     actually wanted: releasing on a device that never had it should be silent. */
+  function applyFocusLock(wantLock) {
+    focusLocked = !!wantLock;
+    const track = videoTrack();
+    if (!track) return;                       // no camera yet: nothing to hold
+    const mode = focusModeFor(focusModes, focusLocked);
+    if (!mode) { if (focusLocked) noticeFocusUnsupported(); return; }
+    const set = cameraAdvancedSet({
+      zoom: feedSensorCap ? feedSensorZoom : undefined,
+      focusMode: mode,
+    });
+    const p = applyCameraConstraints(track, set);
+    if (!p) { if (focusLocked) noticeFocusUnsupported(); return; }
+    // advanced constraints resolve even when the camera ignores them, so confirm
+    // what it actually did before telling the user the lens is held
+    p.then(() => {
+      let got = null;
+      try { got = track.getSettings ? track.getSettings().focusMode : null; } catch (e) { /* ignore */ }
+      if (got === mode) setStatus(I18N.t(mode === FOCUS_LOCK ? 'traceFocusHeld' : 'traceFocusAuto'), mode === FOCUS_LOCK);
+      else if (focusLocked) noticeFocusUnsupported();
+    }).catch(() => { if (focusLocked) noticeFocusUnsupported(); });
+  }
+
   function syncFeedZoom() {
     const split = splitFeedZoom(feedS, feedSensorCap);
     feedCss = split.css;
@@ -875,13 +970,16 @@
     if (feedSensorQueued) return;
     feedSensorQueued = setTimeout(() => {
       feedSensorQueued = 0;
-      const vv = feedSensorPending;
       if (!stream) return;
-      const tr = stream.getVideoTracks && stream.getVideoTracks()[0];
-      if (!tr || !tr.applyConstraints) return;
-      try {
-        tr.applyConstraints({ advanced: [{ zoom: vv }] }).catch(() => {});
-      } catch (e) { /* unsupported at apply time */ }
+      const tr = videoTrack();
+      if (!tr) return;
+      // the whole set goes every time: a partial advanced list could clobber the
+      // focus lock (or the zoom) depending on how the engine re-applies it
+      const p = applyCameraConstraints(tr, cameraAdvancedSet({
+        zoom: feedSensorPending,
+        focusMode: focusModeFor(focusModes, focusLocked),
+      }));
+      if (p) p.catch(() => {});
     }, 40);
   }
 
@@ -889,6 +987,7 @@
      `zoom` after an ImageCapture is constructed on the track, so we try that. */
   function detectSensorZoom() {
     feedSensorCap = null;
+    focusModes = null;
     feedSensorZoom = 1;
     feedCss = feedS;
     if (!stream) return;
@@ -910,6 +1009,11 @@
         step: typeof z.step === 'number' ? z.step : 0,
       };
     }
+    // focus modes: only some devices expose them (Chrome on Android; not desktop
+    // Chrome, not iOS Safari). Probed per stream because it can differ per camera.
+    const f = caps && caps.focusMode;
+    if (typeof f === 'string') focusModes = [f];
+    else if (f && typeof f.length === 'number') focusModes = Array.prototype.slice.call(f);
     syncFeedZoom();
   }
 
@@ -1114,6 +1218,9 @@
     // drop it (plus any deferred press) on unlock
     if (locked) { gState = gestureInit(); seedAlignFromView(); gestureChipOpen(); }
     else gestureReset();
+    // hold the lens with the reference: auto-focus hunting/breathing is one more
+    // source of apparent movement while tracing (no-op where unsupported)
+    applyFocusLock(locked);
   }
 
   /* Peek/hide the projected reference via opacity while tracing. A quick screen
@@ -1267,6 +1374,7 @@
     // pinning owns the gestures, so feed zoom is disabled while points are active
     if (feedOn) setFeedOn(false);
     gestureReset();  // pinning owns the pointer: the dial's context goes null
+    applyFocusLock(true);  // pinning wants a static reference, so hold the lens
     arMode = 'setup';
     arPhase = 'image';
     arSrc = [];
@@ -1882,6 +1990,9 @@
     syncArHud();
     if (els.arPanel) els.arPanel.hidden = true;
     gestureChipSync();   // back in the flat view the dial may apply again
+    // release the pinning hold, unless the image is still locked (skipped when
+    // exiting, where the stream is about to be stopped anyway)
+    if (active) applyFocusLock(locked);
     requestRender();
   }
 
@@ -2297,6 +2408,12 @@
     feedSensorCap = null;
     feedSensorZoom = 1;
     feedSensorImageCapture = null;
+    // stopping the track releases the lens by itself, so there is nothing to
+    // restore - just forget the old camera's capabilities and the readout
+    focusModes = null;
+    focusLocked = false;
+    if (statusTimer) { clearTimeout(statusTimer); statusTimer = 0; }
+    if (els && els.status) els.status.textContent = '';
     if (els && els.video) {
       els.video.pause();
       els.video.removeAttribute('src');
@@ -2968,7 +3085,8 @@
     stopStream();
     startCamera().then((res) => {
       if (!res.ok) toast(res.err);
-      else { detectSensorZoom(); applyFeedTransform(); }
+      // a fresh track starts on autofocus, so re-apply the current lock state
+      else { detectSensorZoom(); applyFeedTransform(); applyFocusLock(locked); }
     });
   }
 
@@ -3020,6 +3138,7 @@
       arBtn: grab('project-ar'),
       arPanel: grab('project-ar-panel'),
       arStatus: grab('project-ar-status'),
+      status: grab('project-status'),
       arMagnet: grab('project-ar-magnet'),
       arCorners: grab('project-ar-corners'),
       arNext: grab('project-ar-next'),
@@ -3158,6 +3277,7 @@
       gestureInit, gestureStep, GESTURE_STOPS, GESTURE_TIMING, ZOOM_STEPS_PX,
       STOP_PRESS, alignBand, clampAlign, alignView, alignStepDelta,
       swipeAxis, swipeStep,
+      focusModeFor, cameraAdvancedSet, applyCameraConstraints,
     },
   };
 

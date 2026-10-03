@@ -471,6 +471,61 @@ test('an alignment zoom keeps the pan; only a plain fit recentres the image', ()
   assert.equal(fitted.cy, 500);
 });
 
+/* ---------- camera focus lock ----------
+   Locking the image holds the lens on the devices that allow it. The decision
+   logic and the constraint payload are pure, so they are pinned here; the
+   camera itself is not reachable from the sandbox. */
+
+test('focusModeFor only claims a lock the camera can actually hold', () => {
+  const { focusModeFor } = loadTracing();
+  const both = ['continuous', 'manual'];
+  assert.equal(focusModeFor(both, true), 'manual');
+  assert.equal(focusModeFor(both, false), 'continuous');
+  // unknown or unsupported cameras must report "cannot", never guess
+  assert.equal(focusModeFor(null, true), null);
+  assert.equal(focusModeFor(undefined, false), null);
+  assert.equal(focusModeFor([], true), null);
+  // single-shot refocuses once rather than holding, so it is not a lock
+  assert.equal(focusModeFor(['single-shot'], true), null);
+  // a camera that only reports autofocus can still be told to use it
+  assert.equal(focusModeFor(['continuous'], false), 'continuous');
+  assert.equal(focusModeFor(['continuous'], true), null);
+});
+
+test('the advanced constraint set carries every control we manage', () => {
+  const { cameraAdvancedSet } = loadTracing();
+  assert.deepEqual(host(cameraAdvancedSet({ focusMode: 'manual' })),
+    { advanced: [{ focusMode: 'manual' }] });
+  assert.deepEqual(host(cameraAdvancedSet({ zoom: 2 })),
+    { advanced: [{ zoom: 2 }] });
+  // both together: locking focus must not drop a sensor zoom the user dialled in
+  assert.deepEqual(host(cameraAdvancedSet({ zoom: 1.5, focusMode: 'continuous' })),
+    { advanced: [{ zoom: 1.5, focusMode: 'continuous' }] });
+  // nothing to say
+  assert.equal(cameraAdvancedSet({}), null);
+  assert.equal(cameraAdvancedSet({ zoom: NaN, focusMode: null }), null);
+  assert.equal(cameraAdvancedSet(null), null);
+});
+
+test('applyCameraConstraints is best-effort and never throws', async () => {
+  const { applyCameraConstraints } = loadTracing();
+  const calls = [];
+  const ok = { applyConstraints: (c) => { calls.push(c); return Promise.resolve(); } };
+  const p = applyCameraConstraints(ok, { advanced: [{ focusMode: 'manual' }] });
+  assert.ok(p && typeof p.then === 'function', 'returns the apply promise');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(host(calls[0]), { advanced: [{ focusMode: 'manual' }] });
+  // a camera that rejects settles via the promise, so the caller can swallow it
+  const bad = { applyConstraints: () => Promise.reject(new Error('nope')) };
+  await assert.rejects(applyCameraConstraints(bad, { advanced: [{ focusMode: 'manual' }] }));
+  // a synchronous throw and a missing/absent applier are inert, not fatal
+  const thrower = { applyConstraints: () => { throw new Error('boom'); } };
+  assert.equal(applyCameraConstraints(thrower, { advanced: [] }), null);
+  assert.equal(applyCameraConstraints({}, { advanced: [] }), null);
+  assert.equal(applyCameraConstraints(null, { advanced: [] }), null);
+  assert.equal(applyCameraConstraints(ok, null), null);
+});
+
 test('a swipe counts on either axis, and the sign carries the direction', () => {
   const { swipeAxis, swipeStep } = loadTracing();
   // one axis must clearly dominate, and travel far enough

@@ -143,6 +143,23 @@ Recent, newest-first:
 - Minimised HUD (`.project-hud.hud-min`) collapses to a floating reveal chip
   bottom-right (no full-width bar).
 
+### Camera focus lock (follows the image Lock)
+
+Locking the image also **holds the lens** (`applyFocusLock`, called from
+`setLocked`) so the feed stops hunting/breathing while tracing; unlocking returns
+it to autofocus, and `#project-status` reads "Focus held" while it is held.
+
+**Only Chrome on Android exposes this** — `focusMode` is absent on desktop Chrome
+and iOS Safari — so the code *attempts, verifies, degrades*: an `advanced`
+constraint resolves even when the camera ignores it, so success is confirmed by
+reading back `track.getSettings().focusMode`, and anything else produces a
+once-per-session notice (`traceFocusUnsupported`) rather than a false claim.
+Support is re-probed per stream in `detectSensorZoom()` (`focusModes`) because it
+can differ per camera, and `switchCamera` re-applies the current state to the
+fresh track. Pinning (AR) holds the lens too, since it wants a static reference.
+No `focusDistance` is ever sent: manual mode alone freezes the lens where it is,
+whereas a distance needs device-specific units and would jump the focus.
+
 ### Mobile "Show mix" bar (`src/js/mix-ui.js`)
 
 `#result-bar` (mobile-only sticky footer) is a stateful toggle: first tap scrolls
@@ -236,6 +253,12 @@ wrong probe.
   `tracing.js` gets this right by computing one local `mid` and reusing it, and
   `test/canvas.test.mjs` now pins the invariant (the pan delta must not depend on
   `rect.left` / `rect.top`).
+- **Camera constraints are always re-applied whole.** `cameraAdvancedSet` sends
+  every advanced constraint we manage (sensor zoom + `focusMode`) in one set, and
+  `applyCameraConstraints` is the only applier. Whether a new `advanced` list
+  merges with, or replaces, the previously applied one is engine-dependent, so a
+  partial set lets one control silently clobber another — locking focus would
+  drop a sensor zoom the user had dialled in, and vice versa.
 - **Adding a `src/js/` file needs more than one edit.** The build takes the load
   order from `src/index.html`, so the file needs its `<script>` tag there *and*
   a matching entry in the `ORDER` array in `test/smoke.test.mjs`, which asserts
