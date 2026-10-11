@@ -175,7 +175,9 @@
   // (1 / metres). 0.01 d is roughly 2 mm of lens travel at 50 cm, so the finest
   // rung sharpens by hand; the coarsest crosses the camera's whole range in a few
   // swipes. Only used for cameras that expose a focusDistance range (§5).
-  const FOCUS_STEPS_D = [0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8];
+  const FOCUS_STEPS_D = [
+    0.01, 0.01, 0.01, 0.02, 0.02, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, 0.4, 0.8,
+  ];
   // deepest rung a run can reach, whichever stop's ladder is the longer one
   const SWIPE_REPEAT_MAX = Math.max(ZOOM_STEPS_PX.length, FOCUS_STEPS_D.length) - 1;
   // Alignment band, RELATIVE to the zoom in effect when the dial took over
@@ -1066,32 +1068,12 @@
     return roundFocusDistance(base + dir * FOCUS_STEPS_D[i], cap);
   }
 
-  /* Show, range and label the manual focus control. It exists only for cameras
-     that expose a focusDistance range, and it reads `auto` until the user dials a
-     distance, so "the lens is not being held" is visible rather than implied. */
-  function syncFocusDist() {
-    if (!els || !els.focusDist) return;
-    const cap = focusDistanceCap;
-    if (els.focusRow) els.focusRow.hidden = !cap;
-    if (!cap) return;
-    els.focusDist.min = String(cap.min);
-    els.focusDist.max = String(cap.max);
-    els.focusDist.step = String(cap.step > 0 ? cap.step : 0.01);
-    if (focusUserDist !== null) els.focusDist.value = String(focusUserDist);
-    if (els.focusDistVal) {
-      els.focusDistVal.textContent = focusUserDist === null
-        ? I18N.t('traceFocusDistAuto')
-        : focusUserDist.toFixed(2) + ' \u2248 ' + Math.round(100 / focusUserDist) + ' cm';
-    }
-  }
-
-  /* The user dialled the focus distance. Applied straight away - manual focus at
-     the chosen distance - so the effect is visible while dialling, and kept in
-     prefs for the image lock to re-apply. Dioptres (1 / metres) is the unit the
-     constraint and the readout both use. */
+  /* Apply a focus distance chosen by the dial: manual focus at that distance,
+     straight away, so the effect is visible as it is stepped, and kept in prefs
+     for the image lock to re-apply. Dioptres (1 / metres) is the unit the
+     constraint and the chip readout both use. */
   function setFocusDistance(v, persist) {
     focusUserDist = roundFocusDistance(v, focusDistanceCap);
-    syncFocusDist();
     if (persist !== false) savePrefs();
     if (focusUserDist === null) return;
     const track = videoTrack();
@@ -1271,7 +1253,6 @@
         step: typeof fd.step === 'number' ? fd.step : 0,
       };
     }
-    syncFocusDist();
     syncFeedZoom();
   }
 
@@ -3438,9 +3419,6 @@
       exitConfirm: grab('project-exit-confirm'),
       exitYes: grab('project-exit-yes'),
       exitCancel: grab('project-exit-cancel'),
-      focusRow: grab('project-focus-row'),
-      focusDist: grab('project-focus-dist'),
-      focusDistVal: grab('project-focus-dist-val'),
       feedToggle: grab('project-feedzoom'),
       feedIn: grab('project-feed-in'),
       feedOut: grab('project-feed-out'),
@@ -3500,7 +3478,6 @@
     });
     if (els.feedToggle) els.feedToggle.addEventListener('click', () => { if (!locked) setFeedOn(!feedOn); });
     if (els.feedIn) els.feedIn.addEventListener('click', () => { if (locked) return; setFeedOn(true); feedZoomBy(FEED_BTN_STEP); });
-    if (els.focusDist) els.focusDist.addEventListener('input', () => setFocusDistance(parseFloat(els.focusDist.value)));
     if (els.feedOut) els.feedOut.addEventListener('click', () => { if (locked) return; setFeedOn(true); feedZoomBy(1 / FEED_BTN_STEP); });
     if (els.feedReset) els.feedReset.addEventListener('click', () => { if (locked) return; feedReset(); });
     els.lineBtn.addEventListener('click', toggleLine);

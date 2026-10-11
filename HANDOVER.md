@@ -184,12 +184,22 @@ foc  manual+cont  dist 0.08-4.28 step 0.01  sent continuous  got continuous 0.08
   Pinning that value racks the lens to infinity — which is exactly the "jumps out
   of focus" reported twice. Where the lens is cannot be read, so it must be chosen.
 
-Hence the **Focus slider** in the tracing HUD: manual focus at a distance the user
-dials (shown in dioptres and cm), applied immediately so the effect is visible
-while dialling, persisted in prefs as `focusDist`, re-applied by the image Lock,
-and released back to autofocus on unlock. It appears only when the camera exposes a
-`focusDistance` range. `focusPlanFor` pins the *user's* distance and refuses to
-fall back to the reported one; `?focus=off` still sends nothing at all.
+Hence the focus control lives on the **gesture dial** (§11) as the `FOCUS` stop:
+the remote's swipes step the lens distance, the chip shows it in cm, and the value
+is persisted in prefs as `focusDist`, re-applied by the image Lock, and released
+back to autofocus on unlock. (There was briefly a slider in the HUD for this; the
+dial replaced it, so tracing mode has one focus control, driven by the remote.)
+
+The finest step is **0.01 dioptres because that is the camera's own granularity**
+(`dist … step 0.01`), so nothing finer is representable — the device rounds it.
+What the ladder can do instead is ramp gently: `FOCUS_STEPS_D` repeats its fine
+rungs (three at 0.01, then two each at 0.02, 0.05, 0.1, 0.2, then 0.4 and 0.8), so
+a run stays fine for several swipes rather than escalating after one. Note the
+dioptre scale is inherently non-linear in distance: 0.01 d is ~2.5 mm at 50 cm but
+~1 m at 10 m, which is why focusing feels precise close in and blunt far out.
+
+`focusPlanFor` pins the *user's* distance and refuses to fall back to the reported
+one; `?focus=off` still sends nothing at all.
 
 Two traps remain worth knowing:
 
@@ -455,10 +465,11 @@ existing `hideTap` path, **not** as keyboard input.
   the lens back to autofocus, which is the hunting the freeze exists to stop.
   Reset stays on the **Fit image** button, and focus is dialled rather than reset.
 - `FOCUS` steps the lens distance in dioptres (1 / metres) along the same repeat
-  ladder as `ZOOM`, and the direction follows the HUD slider: up/right raises the
-  dioptre value, i.e. focuses **nearer**. With nothing dialled yet the first swipe
-  starts from the middle of the camera's range — an arm's-length guess, not an
-  arbitrary end.
+  ladder as `ZOOM`, and the direction follows the number on the chip: up/right
+  raises the dioptre value, i.e. focuses **nearer**. With nothing dialled yet the
+  first swipe starts from the middle of the camera's range — an arm's-length guess,
+  not an arbitrary end. The ladder repeats its fine rungs because 0.01 d is the
+  hardware's floor, not a choice (§5).
 - **Swipes count on either axis** (`swipeAxis` / `swipeStep`, §5). The remote's
   buttons encode direction by press count — a single press emits a swipe *up*, a
   double press a swipe *left* — so a vertical-only classifier would leave every

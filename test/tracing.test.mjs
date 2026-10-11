@@ -406,18 +406,29 @@ test('a focus swipe steps the lens distance by the rung', () => {
   const { focusNudge, FOCUS_STEPS_D } = loadTracing();
   const cap = { min: 0.08, max: 4.28, step: 0.01 };
   const steps = host(FOCUS_STEPS_D);
-  assert.ok(steps.length >= 2);
+  // The finest rung is the camera's OWN step (0.01 dioptres here): anything below
+  // it is not representable, so the ladder cannot go finer than this.
+  assert.equal(steps[0], 0.01);
+  // the ladder must never get finer as it climbs ...
+  for (let i = 1; i < steps.length; i++) {
+    assert.ok(steps[i] >= steps[i - 1], `rung ${i} is finer than rung ${i - 1}`);
+  }
+  // ... and the leading rungs repeat, so a run stays fine for several swipes
+  // instead of escalating after the first one (the whole point of the longer table)
+  const finest = steps.filter((s) => s === steps[0]).length;
+  assert.ok(finest >= 3, `the finest step repeats only ${finest} time(s)`);
+  assert.ok(steps.length >= 10, 'a gentler ramp needs more rungs');
   // direction follows the HUD slider: + raises the dioptre value = focus NEARER
-  assert.ok(Math.abs(focusNudge(2, 1, 0, cap) - 2.01) < 1e-9);
-  assert.ok(Math.abs(focusNudge(2, -1, 0, cap) - 1.99) < 1e-9);
-  // coarser rungs travel further
-  assert.ok(Math.abs(focusNudge(2, 1, 3, cap) - 2.1) < 1e-9);
+  for (const i of [0, 3, steps.length - 1]) {
+    assert.ok(Math.abs(focusNudge(2, 1, i, cap) - (2 + steps[i])) < 1e-9, `rung ${i} up`);
+    assert.ok(Math.abs(focusNudge(2, -1, i, cap) - (2 - steps[i])) < 1e-9, `rung ${i} down`);
+  }
   // nothing dialled yet: the first swipe starts mid-range, not at an arbitrary end
   const mid = (cap.min + cap.max) / 2;
-  assert.ok(Math.abs(focusNudge(null, 1, 0, cap) - (mid + 0.01)) < 1e-9);
+  assert.ok(Math.abs(focusNudge(null, 1, 0, cap) - (mid + steps[0])) < 1e-9);
   // the camera's range is a hard limit, whichever way the ladder is walked
-  assert.equal(focusNudge(cap.min, -1, 6, cap), cap.min);
-  assert.equal(focusNudge(cap.max, 1, 6, cap), cap.max);
+  assert.equal(focusNudge(cap.min, -1, steps.length - 1, cap), cap.min);
+  assert.equal(focusNudge(cap.max, 1, steps.length - 1, cap), cap.max);
   // and a camera that reports no range still yields a usable number
   assert.equal(typeof focusNudge(1, 1, 0, null), 'number');
 });
@@ -435,20 +446,24 @@ test('presses further apart than the window stay two separate presses', () => {
   assert.equal(flush.state.stop, 0, 'the stop never moved');
 });
 
-test('repeated same-direction swipes climb the ZOOM rung ladder and then cap', () => {
-  const { gestureInit, gestureStep, GESTURE_TIMING, ZOOM_STEPS_PX } = loadTracing();
+test('repeated same-direction swipes climb the rung ladder and then cap', () => {
+  const { gestureInit, gestureStep, GESTURE_TIMING, ZOOM_STEPS_PX, FOCUS_STEPS_D } = loadTracing();
   const rep = GESTURE_TIMING.repeatMs;
+  const deepest = Math.max(host(ZOOM_STEPS_PX).length, host(FOCUS_STEPS_D).length) - 1;
   let s = gestureInit();
   const rungs = [];
   let t = 1000;
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < deepest + 3; i++) {
     const r = gestureStep(s, { type: 'swipe', dir: 1, now: t });
     s = r.state;
     rungs.push(host(r.effects[0]).rung);
     t += 10;
   }
-  assert.deepEqual(rungs, [0, 1, 2, 3, 4, 5, 6, 6, 6], 'one rung per swipe, then the cap');
-  assert.equal(host(ZOOM_STEPS_PX).length, rungs[6] + 1, 'the cap is the deepest rung');
+  // one rung per swipe up to the deepest rung of the LONGER stop ladder, then flat:
+  // the machine is stop-agnostic, and each stop clamps the rung to its own table
+  assert.deepEqual(rungs.slice(0, deepest + 1), rungs.slice(0, deepest + 1).map((_, i) => i));
+  assert.deepEqual(rungs.slice(deepest), [deepest, deepest, deepest], 'capped at the deepest rung');
+  assert.ok(host(ZOOM_STEPS_PX).length <= deepest + 1, 'ZOOM clamps within its own ladder');
   // a pause longer than the repeat window restarts the ladder
   const after = gestureStep(s, { type: 'swipe', dir: 1, now: t + rep + 1 });
   assert.equal(after.effects[0].rung, 0);

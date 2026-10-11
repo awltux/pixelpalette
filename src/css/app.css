@@ -1291,11 +1291,6 @@ output { font-size: .78rem; color: var(--text-dim); font-family: var(--mono); }
 .project-hud .project-feed-btns .btn { height: 26px; padding: 0 9px; font-size: .7rem; }
 .project-hud .project-feed-btns .hud-icon { width: 26px; padding: 0; }
 
-/* Manual focus distance: narrow, because this HUD is already busy on a phone. */
-.project-hud .project-focus { cursor: pointer; }
-.project-hud .project-focus input[type="range"] { width: 84px; }
-.project-hud .project-focus output { font-variant-numeric: tabular-nums; }
-
 /* Exit-projection confirmation dialog (above the whole projection overlay) */
 .project-confirm {
   position: absolute; inset: 0; z-index: 400;
