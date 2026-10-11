@@ -168,15 +168,33 @@ Support is re-probed per stream in `detectSensorZoom()` (`focusModes`) because i
 can differ per camera, and `switchCamera` re-applies the current state to the
 fresh track. Pinning (AR) holds the lens too, since it wants a static reference.
 
-**Corrected (a real device proved the earlier note wrong): `manual` on its own is
-not a freeze.** Engines may move the lens to a default position when no
-`focusDistance` is supplied, which is why locking the image made the picture jump
-out of focus. A lock is therefore only attempted when the camera *also* reports a
-current lens position (`focusPlanFor`): the value is rounded to the device's step
-and clamped to its range, and when there is no position to pin the lock is
-abandoned and autofocus left alone (with the same notice) rather than risk it.
-Every apply goes through `cameraState()`, so a feed-zoom change cannot drop the
-pinned distance and a focus change cannot drop the zoom.
+**Focus on Lock is OFF by default, and that is the fix, not a retreat.** Two
+device reports of "pressing Lock knocks the camera out of focus", and the probe
+readout from the second one explains it:
+
+```
+cam  1920x1080  focus:off
+zoom sensor max 10 now 1.2 css 1
+foc  manual/single-shot/continuous  dist 0.08-...
+```
+
+The camera supports every focus mode and a lens-position range, and it grants
+1920×1080 — so the constraint *values* were never the problem. The mechanism is
+that **every `applyConstraints` is a pipeline reconfiguration on this device**,
+and pressing Lock re-applied the whole set as a side effect (including
+`zoom: 1.2`, the persisted feed zoom), which restarted autofocus. Two earlier
+attempts failed for the same reason: the first sent `manual` with no distance
+(engines may move the lens to a default), the second pinned the reported
+distance — but the *re-application itself* was doing the damage.
+
+So: `FOCUS_STRATEGY` defaults to `off`, which means locking the image sends
+**nothing at all**, and `queueSensorZoom` skips an apply when the camera is
+already at that zoom (`sensorZoomSettled`). The active strategies are opt-in per
+session by URL — `?focus=shot` (one `single-shot` autofocus pass, then hold: the
+safest active one, since it ends in focus by definition) or `?focus=pin`
+(`manual` plus the position read back from `getSettings().focusDistance`,
+rounded to the device's step and clamped). `?gdebug=1` prints the strategy and
+the last set sent, so the next device run is measured rather than guessed.
 
 ### Camera capture: resolution and what "zoom" really is
 
@@ -190,8 +208,10 @@ pinned distance and a focus change cannot drop the zoom.
   device* zoom via `applyConstraints` — genuine cropping/magnification — and only
   the remainder is a CSS transform on the `<video>`, which enlarges pixels and adds
   no detail. On a camera that reports no `zoom` capability (most desktops, iOS) it
-  is 100% CSS. `?gdebug=1` prints which is in play, with the cap and the current
-  split, next to the resolution the camera actually handed over.
+  is 100% CSS. **The device this was built for reports `zoom` max 10** and sits at
+  `sensor 1.2 css 1`, so feed zoom there is genuine camera zoom, not upscaling.
+  `?gdebug=1` prints which is in play, with the cap and the current split, next to
+  the resolution the camera actually handed over.
 
 ### Mobile "Show mix" bar (`src/js/mix-ui.js`)
 
@@ -276,6 +296,11 @@ wrong probe.
   sets the mode can *cause* the defocus it was meant to prevent (it did, on a real
   device). Any manual focus must carry the position read back from
   `getSettings().focusDistance`, and be abandoned when there is none.
+- **Every `applyConstraints` may be a pipeline reconfiguration**, so it is not a
+  free read-modify-write of one property: on the target device, re-applying the
+  constraint set (zoom included) restarted autofocus and visibly knocked the
+  picture out of focus — triggered merely by pressing Lock. Apply only when a
+  value actually changes, and prefer not applying at all.
 - **A camera request without width/height gets you whatever the browser feels
   like**, typically 640×480, not the sensor's capability. Say what you want with
   `ideal` values.

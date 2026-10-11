@@ -533,26 +533,48 @@ test('applyCameraConstraints is best-effort and never throws', async () => {
   assert.equal(applyCameraConstraints(ok, null), null);
 });
 
-test('a focus lock is only attempted when the lens position can be pinned', () => {
+test('the focus strategy decides what locking the image may do to the camera', () => {
   const { focusPlanFor } = loadTracing();
-  const both = ['continuous', 'manual'];
-  // the reported distance is carried along, so manual holds where the lens already is
-  assert.deepEqual(host(focusPlanFor({ modes: both, locked: true, distance: 1.25, cap: null })),
+  const both = ['continuous', 'manual', 'single-shot'];
+  // OFF is the default, and it means "send nothing at all": locking the image must
+  // not disturb a camera that is already in focus (it did, twice, on real hardware)
+  assert.equal(focusPlanFor({ strategy: 'off', modes: both, locked: true, distance: 1 }), null);
+  assert.equal(focusPlanFor({ modes: both, locked: true, distance: 1 }), null, 'defaults to off');
+  assert.equal(focusPlanFor({ strategy: 'off', modes: both, locked: false }), null);
+  // PIN carries the lens position the camera reports, and is refused without one
+  assert.deepEqual(host(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: 1.25, cap: null })),
     { mode: 'manual', distance: 1.25 });
-  // manual WITHOUT a reported distance is refused: switching would MOVE the lens,
-  // which is the jump to out-of-focus seen on a real device
-  assert.equal(focusPlanFor({ modes: both, locked: true, distance: null, cap: null }), null);
-  assert.equal(focusPlanFor({ modes: both, locked: true, distance: undefined }), null);
-  assert.equal(focusPlanFor({ modes: both, locked: true, distance: NaN }), null);
-  assert.equal(focusPlanFor({ modes: both, locked: true, distance: '0.5' }), null);
-  // unlocking never carries a distance, and needs no position to do it
-  assert.deepEqual(host(focusPlanFor({ modes: both, locked: false, distance: 9, cap: null })),
-    { mode: 'continuous', distance: null });
-  // no focus control at all
-  assert.equal(focusPlanFor({ modes: null, locked: true, distance: 1 }), null);
-  assert.equal(focusPlanFor({ modes: [], locked: false }), null);
-  // single-shot refocuses once; it is not a hold
-  assert.equal(focusPlanFor({ modes: ['single-shot'], locked: true, distance: 1 }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: null }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: undefined }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: NaN }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: '0.5' }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: ['continuous'], locked: true, distance: 1 }), null);
+  // SHOT takes one autofocus pass and never guesses a position
+  assert.deepEqual(host(focusPlanFor({ strategy: 'shot', modes: both, locked: true, distance: 9 })),
+    { mode: 'single-shot', distance: null });
+  assert.equal(focusPlanFor({ strategy: 'shot', modes: ['manual', 'continuous'], locked: true, distance: 1 }), null);
+  assert.equal(focusPlanFor({ strategy: 'shot', modes: null, locked: true }), null);
+  // unlocking hands the lens back to autofocus wherever the camera has it
+  for (const strategy of ['shot', 'pin']) {
+    assert.deepEqual(host(focusPlanFor({ strategy, modes: both, locked: false, distance: 9 })),
+      { mode: 'continuous', distance: null }, strategy);
+    assert.equal(focusPlanFor({ strategy, modes: ['manual'], locked: false }), null, strategy);
+  }
+});
+
+test('a sensor zoom already in effect is not re-applied', () => {
+  const { sensorZoomSettled } = loadTracing();
+  // re-applying constraints is a pipeline reconfiguration, which on the device
+  // this targets was enough to knock the focus out; redundant applies are skipped
+  const at = (z) => ({ getSettings: () => ({ zoom: z }) });
+  assert.equal(sensorZoomSettled(at(1.2), 1.2), true);
+  assert.equal(sensorZoomSettled(at(1.2), 1.5), false);
+  assert.equal(sensorZoomSettled(at(1.2), 1.2000000001), true, 'within tolerance');
+  // a camera that does not report zoom is never "settled": apply as normal
+  assert.equal(sensorZoomSettled({ getSettings: () => ({}) }, 2), false);
+  assert.equal(sensorZoomSettled({}, 2), false);
+  assert.equal(sensorZoomSettled({ getSettings: () => { throw new Error('boom'); } }, 2), false);
+  assert.equal(sensorZoomSettled(null, 2), false);
 });
 
 test('the pinned distance is rounded and clamped to the device range', () => {

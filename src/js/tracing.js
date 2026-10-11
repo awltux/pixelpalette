@@ -71,13 +71,34 @@
   // it can differ per camera, so it is re-probed for every new stream.
   let focusModes = null;
   let focusLocked = false;       // the user asked for a hold (image is locked)
-  let focusHeld = false;         // a hold is actually applied (manual + distance)
+  let focusHeld = false;         // a manual hold is actually applied
   let focusHold = null;          // the pinned lens position
+  let focusApplied = null;       // the focus mode we last asked the camera for
+  let focusSent = '-';           // what we last sent, shown by the probe
   let focusDistanceCap = null;   // {min,max,step} of the lens position, or null
   let focusNoticeShown = false;  // the unsupported notice is once per session
   let statusTimer = 0;
   const FOCUS_LOCK = 'manual';      // hold the lens where it is
   const FOCUS_AUTO = 'continuous';  // normal autofocus
+  const FOCUS_SHOT = 'single-shot'; // one autofocus pass, then hold
+
+  // What locking the image is allowed to do to the focus. THE DEFAULT IS `off`,
+  // because every active strategy made things worse on real hardware: switching to
+  // manual moved the lens to a default position, and even re-asserting
+  // `continuous` restarts an autofocus cycle, which reads as the picture jumping
+  // out of focus the moment Lock is pressed. So locking no longer touches the
+  // camera unless asked, per session, by URL:
+  //   ?focus=off   (default) leave autofocus completely alone
+  //   ?focus=shot  one autofocus pass on lock, then hold (single-shot)
+  //   ?focus=pin   manual, pinned to the lens position the camera reports
+  // `shot` is the safer of the two active ones: it ends in focus by definition and
+  // never moves the lens to a position we guessed at.
+  const FOCUS_STRATEGY = (function () {
+    try {
+      const m = /(^|[?&])focus=(off|shot|pin)(&|$)/.exec(global.location ? global.location.search : '');
+      return m ? m[2] : 'off';
+    } catch (e) { return 'off'; }
+  })();
   const FEED_MAX = 10;
   // how coarse/fine each zoom step is. Multiplicative per click; 1.10 =
   // ~10% per click (finer than the previous 1.35). Wheel uses a weaker
@@ -881,20 +902,31 @@
     return isFinite(v) ? v : null;
   }
 
-  /* What to send for the focus lock, or null when it cannot be held safely.
-
-     Locking means `manual` PLUS the lens position the camera is already at.
-     Switching to `manual` with NO distance is not a freeze: engines are free to
-     move the lens to a default, which is the jump to out-of-focus that showed up
-     on a real device. So without a reported distance we leave autofocus alone
-     rather than risk it. */
+  /* What to send for the focus lock, or null when nothing should be sent at all.
+     `off` (the default) always means "send nothing": locking the image must not
+     disturb a camera that is already in focus. */
   function focusPlanFor(plan) {
-    const mode = focusModeFor(plan && plan.modes, plan && plan.locked);
-    if (!mode) return null;
-    if (mode !== FOCUS_LOCK) return { mode: mode, distance: null };
+    const strategy = (plan && plan.strategy) || 'off';
+    if (strategy === 'off') return null;
+    const modes = plan && plan.modes;
+    if (!(plan && plan.locked)) {
+      // releasing: hand the lens back to autofocus wherever the camera has it
+      const auto = focusModeFor(modes, false);
+      return auto ? { mode: auto, distance: null } : null;
+    }
+    if (strategy === 'shot') {
+      // one autofocus pass, then the camera holds: this stops continuous hunting
+      // without guessing a lens position, so it cannot park the lens somewhere
+      // wrong the way manual can
+      return hasMode(modes, FOCUS_SHOT) ? { mode: FOCUS_SHOT, distance: null } : null;
+    }
+    // `pin`: manual PLUS the position the lens is already at. Manual with no
+    // distance is not a freeze - engines may move the lens to a default - so with
+    // no reported position there is nothing safe to send.
+    const manual = focusModeFor(modes, true);
+    if (!manual) return null;
     const d = roundFocusDistance(plan.distance, plan.cap);
-    if (d === null) return null;
-    return { mode: mode, distance: d };
+    return d === null ? null : { mode: manual, distance: d };
   }
 
   /* The lens position the camera reports right now, or null when it exposes none. */
@@ -904,24 +936,26 @@
   }
 
   /* The camera state we want at this moment. Everything we apply goes through
-     this, so a zoom change cannot drop the pinned focus distance and a focus
-     change cannot drop the zoom. */
+     this, so a zoom change cannot drop the focus state and a focus change cannot
+     drop the zoom. With the strategy off no focus mode is ever sent, which leaves
+     feed zoom behaving exactly as it did before any of this existed. */
   function cameraState() {
+    const managing = FOCUS_STRATEGY !== 'off';
     return {
       zoom: feedSensorCap ? feedSensorZoom : undefined,
-      focusMode: focusHeld ? FOCUS_LOCK : (focusModeFor(focusModes, false) || undefined),
+      focusMode: managing && focusApplied ? focusApplied : undefined,
       focusDistance: focusHeld && focusHold !== null ? focusHold : undefined,
     };
   }
 
+  function hasMode(modes, m) { return !!(modes && modes.indexOf(m) >= 0); }
+
   /* Which focus mode the current lock state wants, or null when this device
-     cannot do it. `single-shot` deliberately does not count: it refocuses once
-     rather than holding, so accepting it would be claiming a lock we do not
-     have. `modes` is the track's capability list. */
+     cannot do it. `modes` is the track's capability list. */
   function focusModeFor(modes, locked) {
     if (!modes || !modes.length) return null;
     const want = locked ? FOCUS_LOCK : FOCUS_AUTO;
-    return modes.indexOf(want) >= 0 ? want : null;
+    return hasMode(modes, want) ? want : null;
   }
 
   /* The complete set of advanced camera constraints we manage, built from state.
@@ -977,12 +1011,19 @@
   }
 
   /* Hold or release the lens with the image lock. Only complains when a lock was
-     actually wanted: releasing on a device that never had it should be silent. */
+     actually wanted: releasing on a device that never had it should be silent.
+     With the default strategy (`off`) this returns immediately, so pressing Lock
+     cannot disturb the camera at all. */
   function applyFocusLock(wantLock) {
     focusLocked = !!wantLock;
     const track = videoTrack();
     if (!track) return;                       // no camera yet: nothing to hold
+    if (FOCUS_STRATEGY === 'off') {
+      focusHeld = false; focusHold = null; focusApplied = null; focusSent = '-';
+      return;
+    }
     const plan = focusPlanFor({
+      strategy: FOCUS_STRATEGY,
       modes: focusModes,
       locked: focusLocked,
       distance: focusLocked ? currentFocusDistance(track) : null,
@@ -990,28 +1031,28 @@
     });
     focusHeld = !!(plan && plan.mode === FOCUS_LOCK);
     focusHold = plan ? plan.distance : null;
-    if (!plan) {
-      if (focusLocked) {
-        noticeFocusUnsupported();
-        // do not switch to manual without a distance - that is what makes the
-        // image jump out of focus. Ask for autofocus explicitly instead, so a
-        // failed lock cannot leave the lens pinned somewhere odd.
-        if (focusModeFor(focusModes, false)) {
-          applyCameraConstraints(track, cameraAdvancedSet(cameraState()));
-        }
-      }
-      return;
-    }
-    const p = applyCameraConstraints(track, cameraAdvancedSet(cameraState()));
+    // no plan while locking means this camera cannot do it: say so once, and make
+    // sure an earlier attempt does not leave the lens parked in manual
+    focusApplied = plan ? plan.mode : (focusLocked ? focusModeFor(focusModes, false) : null);
+    if (!plan && focusLocked) noticeFocusUnsupported();
+    focusSent = focusApplied
+      ? focusApplied + (focusHold !== null ? ' ' + Math.round(focusHold * 100) / 100 : '')
+      : '-';
+    const set = cameraAdvancedSet(cameraState());
+    if (!set) return;
+    const p = applyCameraConstraints(track, set);
     if (!p) { if (focusLocked) noticeFocusUnsupported(); return; }
     // advanced constraints resolve even when the camera ignores them, so confirm
-    // what it actually did before telling the user the lens is held
+    // what it actually did before telling the user anything
     p.then(() => {
       let got = null;
       try { got = track.getSettings ? track.getSettings().focusMode : null; } catch (e) { /* ignore */ }
-      if (got === plan.mode) {
-        setStatus(I18N.t(plan.mode === FOCUS_LOCK ? 'traceFocusHeld' : 'traceFocusAuto'), plan.mode === FOCUS_LOCK);
-      } else if (focusLocked) noticeFocusUnsupported();
+      if (focusApplied && got !== focusApplied) {
+        if (focusLocked) noticeFocusUnsupported();
+        return;
+      }
+      const heldNow = focusHeld || focusApplied === FOCUS_SHOT;
+      setStatus(I18N.t(heldNow ? 'traceFocusHeld' : 'traceFocusAuto'), heldNow);
     }).catch(() => { if (focusLocked) noticeFocusUnsupported(); });
   }
 
@@ -1020,6 +1061,21 @@
     feedCss = split.css;
     feedSensorZoom = split.sensor;
     if (feedSensorCap) queueSensorZoom(feedSensorZoom);
+  }
+
+  /* Is the camera already at this sensor zoom? Every applyConstraints is a
+     pipeline reconfiguration on some devices, and that can restart autofocus or
+     flash the exposure - so a redundant apply is not free, and on the device this
+     was built for it was enough to knock the picture out of focus when it
+     happened as a side effect of pressing Lock. */
+  function sensorZoomSettled(track, v) {
+    try {
+      const s = track.getSettings ? track.getSettings() : null;
+      if (!s || typeof s.zoom !== 'number') return false;
+      const step = feedSensorCap && feedSensorCap.step > 0 ? feedSensorCap.step : 0;
+      const tol = step ? step / 2 : 1e-6;
+      return Math.abs(s.zoom - v) <= tol;
+    } catch (e) { return false; }
   }
 
   function queueSensorZoom(value) {
@@ -1048,6 +1104,7 @@
       // cannot drop the pinned focus distance (nor re-apply manual without one)
       const st = cameraState();
       st.zoom = feedSensorPending;
+      if (sensorZoomSettled(tr, feedSensorPending)) return;   // already there
       const p = applyCameraConstraints(tr, cameraAdvancedSet(st));
       if (p) p.catch(() => {});
     }, 40);
@@ -2683,13 +2740,13 @@
         : has('continuous') ? 'cont only'
           : focusModes.join('/');
     return [
-      'cam   ' + size,
+      'cam   ' + size + '  focus:' + FOCUS_STRATEGY,
       feedSensorCap
         ? 'zoom  sensor ' + feedSensorCap.max + 'x max  now ' + r2(feedSensorZoom) + '  css ' + r2(feedCss)
         : 'zoom  css only  now ' + r2(feedCss),
       'foc   ' + modes + '  ' +
         (focusDistanceCap ? 'dist ' + focusDistanceCap.min + '-' + focusDistanceCap.max : 'dist n/a') +
-        '  ' + (focusHeld ? 'HELD' : 'auto'),
+        '  sent ' + focusSent,
     ];
   }
 
@@ -3400,7 +3457,7 @@
       STOP_PRESS, alignBand, clampAlign, alignView, alignStepDelta,
       swipeAxis, swipeStep,
       focusModeFor, cameraAdvancedSet, applyCameraConstraints,
-      focusPlanFor, roundFocusDistance,
+      focusPlanFor, roundFocusDistance, hasMode, sensorZoomSettled,
     },
   };
 
