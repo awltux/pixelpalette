@@ -70,7 +70,10 @@
   // capability list (null = unknown/unsupported); it is never persisted, because
   // it can differ per camera, so it is re-probed for every new stream.
   let focusModes = null;
-  let focusLocked = false;
+  let focusLocked = false;       // the user asked for a hold (image is locked)
+  let focusHeld = false;         // a hold is actually applied (manual + distance)
+  let focusHold = null;          // the pinned lens position
+  let focusDistanceCap = null;   // {min,max,step} of the lens position, or null
   let focusNoticeShown = false;  // the unsupported notice is once per session
   let statusTimer = 0;
   const FOCUS_LOCK = 'manual';      // hold the lens where it is
@@ -863,6 +866,54 @@
   // recompute the CSS scale actually applied to the <video> and (re)issue the
   // sensor zoom constraint, coalesced so rapid zoom gestures don't spam it.
   // Callers must call applyFeedTransform() after layout is ready.
+  /* A lens position rounded to the device's step and clamped to its range, or
+     null when there is no usable number to pin. */
+  function roundFocusDistance(d, cap) {
+    if (typeof d !== 'number' || !isFinite(d)) return null;
+    if (!cap) return d;
+    const min = typeof cap.min === 'number' ? cap.min : null;
+    const max = typeof cap.max === 'number' ? cap.max : null;
+    const step = typeof cap.step === 'number' && cap.step > 0 ? cap.step : 0;
+    let v = d;
+    if (step) v = (min || 0) + Math.round((v - (min || 0)) / step) * step;
+    if (min !== null) v = Math.max(min, v);
+    if (max !== null) v = Math.min(max, v);
+    return isFinite(v) ? v : null;
+  }
+
+  /* What to send for the focus lock, or null when it cannot be held safely.
+
+     Locking means `manual` PLUS the lens position the camera is already at.
+     Switching to `manual` with NO distance is not a freeze: engines are free to
+     move the lens to a default, which is the jump to out-of-focus that showed up
+     on a real device. So without a reported distance we leave autofocus alone
+     rather than risk it. */
+  function focusPlanFor(plan) {
+    const mode = focusModeFor(plan && plan.modes, plan && plan.locked);
+    if (!mode) return null;
+    if (mode !== FOCUS_LOCK) return { mode: mode, distance: null };
+    const d = roundFocusDistance(plan.distance, plan.cap);
+    if (d === null) return null;
+    return { mode: mode, distance: d };
+  }
+
+  /* The lens position the camera reports right now, or null when it exposes none. */
+  function currentFocusDistance(track) {
+    if (!track || !track.getSettings) return null;
+    try { return track.getSettings().focusDistance; } catch (e) { return null; }
+  }
+
+  /* The camera state we want at this moment. Everything we apply goes through
+     this, so a zoom change cannot drop the pinned focus distance and a focus
+     change cannot drop the zoom. */
+  function cameraState() {
+    return {
+      zoom: feedSensorCap ? feedSensorZoom : undefined,
+      focusMode: focusHeld ? FOCUS_LOCK : (focusModeFor(focusModes, false) || undefined),
+      focusDistance: focusHeld && focusHold !== null ? focusHold : undefined,
+    };
+  }
+
   /* Which focus mode the current lock state wants, or null when this device
      cannot do it. `single-shot` deliberately does not count: it refocuses once
      rather than holding, so accepting it would be claiming a lock we do not
@@ -882,6 +933,9 @@
     const adv = {};
     if (state && typeof state.zoom === 'number' && isFinite(state.zoom)) adv.zoom = state.zoom;
     if (state && state.focusMode) adv.focusMode = state.focusMode;
+    if (state && typeof state.focusDistance === 'number' && isFinite(state.focusDistance)) {
+      adv.focusDistance = state.focusDistance;
+    }
     return Object.keys(adv).length ? { advanced: [adv] } : null;
   }
 
@@ -928,21 +982,36 @@
     focusLocked = !!wantLock;
     const track = videoTrack();
     if (!track) return;                       // no camera yet: nothing to hold
-    const mode = focusModeFor(focusModes, focusLocked);
-    if (!mode) { if (focusLocked) noticeFocusUnsupported(); return; }
-    const set = cameraAdvancedSet({
-      zoom: feedSensorCap ? feedSensorZoom : undefined,
-      focusMode: mode,
+    const plan = focusPlanFor({
+      modes: focusModes,
+      locked: focusLocked,
+      distance: focusLocked ? currentFocusDistance(track) : null,
+      cap: focusDistanceCap,
     });
-    const p = applyCameraConstraints(track, set);
+    focusHeld = !!(plan && plan.mode === FOCUS_LOCK);
+    focusHold = plan ? plan.distance : null;
+    if (!plan) {
+      if (focusLocked) {
+        noticeFocusUnsupported();
+        // do not switch to manual without a distance - that is what makes the
+        // image jump out of focus. Ask for autofocus explicitly instead, so a
+        // failed lock cannot leave the lens pinned somewhere odd.
+        if (focusModeFor(focusModes, false)) {
+          applyCameraConstraints(track, cameraAdvancedSet(cameraState()));
+        }
+      }
+      return;
+    }
+    const p = applyCameraConstraints(track, cameraAdvancedSet(cameraState()));
     if (!p) { if (focusLocked) noticeFocusUnsupported(); return; }
     // advanced constraints resolve even when the camera ignores them, so confirm
     // what it actually did before telling the user the lens is held
     p.then(() => {
       let got = null;
       try { got = track.getSettings ? track.getSettings().focusMode : null; } catch (e) { /* ignore */ }
-      if (got === mode) setStatus(I18N.t(mode === FOCUS_LOCK ? 'traceFocusHeld' : 'traceFocusAuto'), mode === FOCUS_LOCK);
-      else if (focusLocked) noticeFocusUnsupported();
+      if (got === plan.mode) {
+        setStatus(I18N.t(plan.mode === FOCUS_LOCK ? 'traceFocusHeld' : 'traceFocusAuto'), plan.mode === FOCUS_LOCK);
+      } else if (focusLocked) noticeFocusUnsupported();
     }).catch(() => { if (focusLocked) noticeFocusUnsupported(); });
   }
 
@@ -975,10 +1044,11 @@
       if (!tr) return;
       // the whole set goes every time: a partial advanced list could clobber the
       // focus lock (or the zoom) depending on how the engine re-applies it
-      const p = applyCameraConstraints(tr, cameraAdvancedSet({
-        zoom: feedSensorPending,
-        focusMode: focusModeFor(focusModes, focusLocked),
-      }));
+      // the rounded zoom goes out with the CURRENT focus state, so a zoom change
+      // cannot drop the pinned focus distance (nor re-apply manual without one)
+      const st = cameraState();
+      st.zoom = feedSensorPending;
+      const p = applyCameraConstraints(tr, cameraAdvancedSet(st));
       if (p) p.catch(() => {});
     }, 40);
   }
@@ -988,6 +1058,7 @@
   function detectSensorZoom() {
     feedSensorCap = null;
     focusModes = null;
+    focusDistanceCap = null;
     feedSensorZoom = 1;
     feedCss = feedS;
     if (!stream) return;
@@ -1014,6 +1085,16 @@
     const f = caps && caps.focusMode;
     if (typeof f === 'string') focusModes = [f];
     else if (f && typeof f.length === 'number') focusModes = Array.prototype.slice.call(f);
+    // the lens position range: without it a lock cannot be pinned to where the
+    // camera is now, and switching to manual would move the lens (see focusPlanFor)
+    const fd = caps && caps.focusDistance;
+    if (fd && typeof fd.max === 'number') {
+      focusDistanceCap = {
+        min: typeof fd.min === 'number' ? fd.min : 0,
+        max: fd.max,
+        step: typeof fd.step === 'number' ? fd.step : 0,
+      };
+    }
     syncFeedZoom();
   }
 
@@ -2411,7 +2492,10 @@
     // stopping the track releases the lens by itself, so there is nothing to
     // restore - just forget the old camera's capabilities and the readout
     focusModes = null;
+    focusDistanceCap = null;
     focusLocked = false;
+    focusHeld = false;
+    focusHold = null;
     if (statusTimer) { clearTimeout(statusTimer); statusTimer = 0; }
     if (els && els.status) els.status.textContent = '';
     if (els && els.video) {
@@ -2446,7 +2530,15 @@
     starting = true;
     try {
       const media = await global.navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing === 'environment' ? 'environment' : 'user' },
+        // Ask for a real capture size. Without width/height the browser hands back
+        // a default mode - often 640x480 - and the feed then looks soft next to the
+        // overlay drawn over it. `ideal` picks the closest mode the camera has
+        // rather than failing, and a front camera may still return less.
+        video: {
+          facingMode: facing === 'environment' ? 'environment' : 'user',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         audio: false,
       });
       starting = false;
@@ -2576,6 +2668,25 @@
     return s;
   }
 
+  /* One line describing the live camera, so a device run answers the questions
+     the code otherwise leaves to guesswork: is the feed zoom real sensor zoom or
+     CSS only, what resolution did the camera actually give us, and can the lens
+     be held (modes + a position range)? */
+  function gdbgCameraLine() {
+    const v = els && els.video;
+    const size = v && v.videoWidth ? v.videoWidth + 'x' + v.videoHeight : 'no video';
+    const zoom = feedSensorCap
+      ? 'sensor max ' + feedSensorCap.max + ' now ' + Math.round(feedSensorZoom * 100) / 100 +
+        ' css ' + Math.round(feedCss * 100) / 100
+      : 'none (CSS only)';
+    const modes = focusModes && focusModes.length ? focusModes.join('/') : 'none';
+    const dist = focusDistanceCap
+      ? 'dist ' + focusDistanceCap.min + '-' + focusDistanceCap.max
+      : 'dist n/a';
+    return 'cam  ' + size + '  zoom ' + zoom + '  focus ' + modes + '  ' + dist +
+      '  ' + (focusHeld ? 'HELD' : 'auto');
+  }
+
   function gdbgRender() {
     if (!GESTURE_DEBUG) return;
     if (!gdbgEl) {
@@ -2599,6 +2710,7 @@
         '  min ' + SWIPE_PX + (s.swipes && s.swMin < SWIPE_PX ? '  <- SWIPES TOO SHORT' : ''),
       'dbl  n=' + s.gaps + '  last ' + Math.round(s.gapLast) + ' ms  min ' +
         (isFinite(s.gapMin) ? Math.round(s.gapMin) : '-') + ' ms  window ' + DOUBLE_PRESS_MS,
+      gdbgCameraLine(),
     );
     gdbgEl.textContent = lines.join('\n');
   }
@@ -3278,6 +3390,7 @@
       STOP_PRESS, alignBand, clampAlign, alignView, alignStepDelta,
       swipeAxis, swipeStep,
       focusModeFor, cameraAdvancedSet, applyCameraConstraints,
+      focusPlanFor, roundFocusDistance,
     },
   };
 

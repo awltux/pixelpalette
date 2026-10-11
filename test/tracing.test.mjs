@@ -501,6 +501,13 @@ test('the advanced constraint set carries every control we manage', () => {
   // both together: locking focus must not drop a sensor zoom the user dialled in
   assert.deepEqual(host(cameraAdvancedSet({ zoom: 1.5, focusMode: 'continuous' })),
     { advanced: [{ zoom: 1.5, focusMode: 'continuous' }] });
+  // a lock also carries the pinned lens position, in the same set
+  assert.deepEqual(host(cameraAdvancedSet({ zoom: 1.5, focusMode: 'manual', focusDistance: 1.2 })),
+    { advanced: [{ zoom: 1.5, focusMode: 'manual', focusDistance: 1.2 }] });
+  // but a non-finite distance is never sent: it would be a manual lock with no
+  // position, which is what moves the lens
+  assert.deepEqual(host(cameraAdvancedSet({ focusMode: 'manual', focusDistance: NaN })),
+    { advanced: [{ focusMode: 'manual' }] });
   // nothing to say
   assert.equal(cameraAdvancedSet({}), null);
   assert.equal(cameraAdvancedSet({ zoom: NaN, focusMode: null }), null);
@@ -524,6 +531,43 @@ test('applyCameraConstraints is best-effort and never throws', async () => {
   assert.equal(applyCameraConstraints({}, { advanced: [] }), null);
   assert.equal(applyCameraConstraints(null, { advanced: [] }), null);
   assert.equal(applyCameraConstraints(ok, null), null);
+});
+
+test('a focus lock is only attempted when the lens position can be pinned', () => {
+  const { focusPlanFor } = loadTracing();
+  const both = ['continuous', 'manual'];
+  // the reported distance is carried along, so manual holds where the lens already is
+  assert.deepEqual(host(focusPlanFor({ modes: both, locked: true, distance: 1.25, cap: null })),
+    { mode: 'manual', distance: 1.25 });
+  // manual WITHOUT a reported distance is refused: switching would MOVE the lens,
+  // which is the jump to out-of-focus seen on a real device
+  assert.equal(focusPlanFor({ modes: both, locked: true, distance: null, cap: null }), null);
+  assert.equal(focusPlanFor({ modes: both, locked: true, distance: undefined }), null);
+  assert.equal(focusPlanFor({ modes: both, locked: true, distance: NaN }), null);
+  assert.equal(focusPlanFor({ modes: both, locked: true, distance: '0.5' }), null);
+  // unlocking never carries a distance, and needs no position to do it
+  assert.deepEqual(host(focusPlanFor({ modes: both, locked: false, distance: 9, cap: null })),
+    { mode: 'continuous', distance: null });
+  // no focus control at all
+  assert.equal(focusPlanFor({ modes: null, locked: true, distance: 1 }), null);
+  assert.equal(focusPlanFor({ modes: [], locked: false }), null);
+  // single-shot refocuses once; it is not a hold
+  assert.equal(focusPlanFor({ modes: ['single-shot'], locked: true, distance: 1 }), null);
+});
+
+test('the pinned distance is rounded and clamped to the device range', () => {
+  const { roundFocusDistance } = loadTracing();
+  const cap = { min: 0.5, max: 2, step: 0.1 };
+  assert.ok(Math.abs(roundFocusDistance(1.24, cap) - 1.2) < 1e-9);
+  assert.ok(Math.abs(roundFocusDistance(1.26, cap) - 1.3) < 1e-9);
+  assert.equal(roundFocusDistance(0.1, cap), 0.5, 'clamped up to the minimum');
+  assert.equal(roundFocusDistance(9, cap), 2, 'clamped down to the maximum');
+  // without a capability the value passes through untouched
+  assert.equal(roundFocusDistance(1.234, null), 1.234);
+  // nothing usable to pin
+  assert.equal(roundFocusDistance(null, cap), null);
+  assert.equal(roundFocusDistance(undefined, cap), null);
+  assert.equal(roundFocusDistance(NaN, cap), null);
 });
 
 test('a swipe counts on either axis, and the sign carries the direction', () => {

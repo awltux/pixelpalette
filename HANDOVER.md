@@ -167,8 +167,31 @@ once-per-session notice (`traceFocusUnsupported`) rather than a false claim.
 Support is re-probed per stream in `detectSensorZoom()` (`focusModes`) because it
 can differ per camera, and `switchCamera` re-applies the current state to the
 fresh track. Pinning (AR) holds the lens too, since it wants a static reference.
-No `focusDistance` is ever sent: manual mode alone freezes the lens where it is,
-whereas a distance needs device-specific units and would jump the focus.
+
+**Corrected (a real device proved the earlier note wrong): `manual` on its own is
+not a freeze.** Engines may move the lens to a default position when no
+`focusDistance` is supplied, which is why locking the image made the picture jump
+out of focus. A lock is therefore only attempted when the camera *also* reports a
+current lens position (`focusPlanFor`): the value is rounded to the device's step
+and clamped to its range, and when there is no position to pin the lock is
+abandoned and autofocus left alone (with the same notice) rather than risk it.
+Every apply goes through `cameraState()`, so a feed-zoom change cannot drop the
+pinned distance and a focus change cannot drop the zoom.
+
+### Camera capture: resolution and what "zoom" really is
+
+- **Capture size is requested explicitly** (`width: { ideal: 1920 },
+  height: { ideal: 1080 }`). Without width/height the browser returns a default
+  mode (often 640×480) and the feed looks soft next to the overlay drawn over it.
+  `ideal` picks the closest mode the camera has instead of failing; a front camera
+  may still give less.
+- **Feed zoom is two different things stitched together** (`splitFeedZoom`): as
+  much magnification as the track's `zoom` capability allows is real *sensor /
+  device* zoom via `applyConstraints` — genuine cropping/magnification — and only
+  the remainder is a CSS transform on the `<video>`, which enlarges pixels and adds
+  no detail. On a camera that reports no `zoom` capability (most desktops, iOS) it
+  is 100% CSS. `?gdebug=1` prints which is in play, with the cap and the current
+  split, next to the resolution the camera actually handed over.
 
 ### Mobile "Show mix" bar (`src/js/mix-ui.js`)
 
@@ -248,6 +271,14 @@ wrong probe.
   `<style>` occurrences (exactly 2 expected), so a comment that merely mentions
   one fails the whole suite. Write "style element" instead. (Bit us in the
   Phase 0 gesture probe; §11.)
+- **`focusMode: 'manual'` alone does not hold a lens where it is.** With no
+  `focusDistance` the engine may move it to a default, so a "focus lock" that only
+  sets the mode can *cause* the defocus it was meant to prevent (it did, on a real
+  device). Any manual focus must carry the position read back from
+  `getSettings().focusDistance`, and be abandoned when there is none.
+- **A camera request without width/height gets you whatever the browser feels
+  like**, typically 640×480, not the sensor's capability. Say what you want with
+  `ideal` values.
 - **The deploy is destructive, and the bucket is shared.** `s3://util.awltux.trade`
   holds the site root and four sibling projects, and every sync runs with
   `--delete`, so a mistyped prefix does not fail — it deletes someone else's site.
