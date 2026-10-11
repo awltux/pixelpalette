@@ -28,6 +28,7 @@ npm test             # full suite: node --test --test-isolation=none  (144 at th
 npm run host         # serve dist/ (defaults 8080 if run directly)
 npm run build:watch  # rebuild on src/ changes
 npm run dev          # build:watch + host together (hosts 8081; PORT= to change)
+npm run deploy       # publish dist/ to S3 + invalidate CloudFront (--dryrun to check)
 ```
 
 There is **no dev server and no bundler** to run — the sources are plain-script
@@ -243,6 +244,17 @@ wrong probe.
   `<style>` occurrences (exactly 2 expected), so a comment that merely mentions
   one fails the whole suite. Write "style element" instead. (Bit us in the
   Phase 0 gesture probe; §11.)
+- **The deploy is destructive, and the bucket is shared.** `s3://util.awltux.trade`
+  holds the site root and four sibling projects, and every sync runs with
+  `--delete`, so a mistyped prefix does not fail — it deletes someone else's site.
+  `guardPrefix` allows only `pixelpalette` (or `pixelpalette/…`) and refuses an
+  empty prefix outright. It will also delete objects the build does not produce
+  (§13).
+- **Verify a deploy with `--dryrun`, not by reading the script.** The first dry
+  run caught a provenance bug that printed `(from [object Object])` in the banner
+  — invisible on review, obvious in output — and revealed two live objects the
+  sync intended to delete. `pickSetting`, `guardPrefix`, `planCommands` and
+  `invalidationArgs` are exported and unit-tested for the rest.
 - `test/build.test.mjs` reads a module-level `html` snapshot at import time.
   When adding tests that depend on freshly-built output, **re-read
   `dist/index.html` inside the test** (the new SW/version test does this).
@@ -341,6 +353,7 @@ src/js/i18n.js            English string table (single locale)
 src/index.html            App shell, all modals, update banner, tracing HUD
 scripts/build.mjs         Bundler; hash stamping; emits sw.js + version.json
 scripts/host.mjs          Static host for dist/ (correct MIME types)
+scripts/deploy.mjs        Publishes dist/ to S3 + invalidates CloudFront (§13)
 test/build.test.mjs       Bundle + SW/version assertions
 ```
 
@@ -557,3 +570,37 @@ slider in the toolbar (`#levels-on`, `#levels-band`, `#levels-band-name`, and
 Two honest limits: the base posterisation hides structure *within* a zone, so
 untick the box to see the real image; and the magnifier always shows true
 colours, so the loupe and the zone view will disagree while Levels is on.
+
+## 13. Deploying to S3
+
+`npm run deploy` → `scripts/deploy.mjs`, ported from the Dancing Squared book
+deployer (`dancingsquared/scripts/deploy-book.mjs`), which is the approach already
+proven on this host.
+
+- **One bucket serves the whole of `util.awltux.trade`**: the site root lives at
+  the bucket root and each project owns a prefix. Pixel Palette is
+  `s3://util.awltux.trade/pixelpalette/` — prefix `pixelpalette`, matching the URL
+  path.
+- **Settings:** `--flag`, then `PIXELPALETTE_S3_BUCKET` /
+  `PIXELPALETTE_S3_PREFIX` / `PIXELPALETTE_CLOUDFRONT_DISTRIBUTION_ID`, then
+  `.env` (gitignored, so the bucket and distribution stay out of this public
+  repo), then `deploy.txt` — `KEY=value` or `key = value`, `#` comments, and an
+  empty value counts as unset rather than blanking another source. The banner
+  prints where each value came from.
+- **The distribution is required, not optional.** Assets carry a one-hour cache
+  and no filename is content-hashed, so an un-invalidated deploy can serve a
+  mixture of two builds — the sibling project's recorded incident, and the same
+  shape as our own stale-`version.json` episode (§6).
+- **Order:** assets (1 h) → pages + `sw.js` (`no-cache`) → manifest (correct
+  Content-Type) → **`version.json` last** → invalidate `/<prefix>/*`.
+- **`version.json` last is a deliberate deviation** from the reference. It is the
+  update probe and the check is a bare inequality, so a probe uploaded before the
+  shell tells open clients an update exists that a reload cannot deliver.
+- **Known hazard at the time of writing:** the live prefix also holds `LICENCE.md`
+  and `README.md`, which the build does not produce, so `--delete` removes them
+  (the dry run reports both). Either copy what should stay public into `src/` —
+  the build ships top-level static files (§2) — or accept the removal. Decide
+  before the first real deploy.
+- `test/deploy.test.mjs` pins the settings precedence, the prefix guard and the
+  exact `aws` argument lists, because a wrong `--include`/`--exclude` set would not
+  fail: it would delete.

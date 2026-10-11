@@ -33,6 +33,10 @@ const TYPES = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // the web app manifest: without this it goes out as application/octet-stream,
+  // which can stop the PWA installing - the same trap the S3 deploy fixes with an
+  // explicit --content-type on upload
+  '.webmanifest': 'application/manifest+json',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',

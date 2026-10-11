@@ -79,6 +79,55 @@ the real browser sources (`src/js/*.js`) into a `vm` sandbox with mocked
 
 Run any single file with e.g. `node --test --test-isolation=none test/mixing.test.mjs`.
 
+## Publishing to S3
+
+The app is served from S3, so the built `dist/` is uploaded with the AWS CLI by
+`scripts/deploy.mjs`, wrapped as `npm run deploy`:
+
+```sh
+npm run build
+npm run deploy            # add --dryrun to see what would change, writing nothing
+```
+
+Bucket, prefix and distribution are taken from a flag, then the real environment
+(`PIXELPALETTE_S3_BUCKET`, `PIXELPALETTE_S3_PREFIX`,
+`PIXELPALETTE_CLOUDFRONT_DISTRIBUTION_ID`), then `.env`, then a `deploy.txt`:
+
+```
+# .env  (gitignored - the repo is public, so the host stays out of the history)
+PIXELPALETTE_S3_BUCKET=util.awltux.trade
+PIXELPALETTE_S3_PREFIX=pixelpalette
+PIXELPALETTE_CLOUDFRONT_DISTRIBUTION_ID=<the distribution that fronts the host>
+```
+
+Nothing in there is a secret — the AWS credentials come from the CLI's own
+configuration, never from here — and the banner prints where each value came
+from, so "why is it deploying there?" is answerable without reading the script.
+
+Four things the script exists to get right that a bare `aws s3 sync dist/ …`
+does not:
+
+- **Cache headers are split**, in two passes, because `aws s3 sync` accepts one
+  `--cache-control` per invocation: `index.html`, `sw.js` and `version.json` go up
+  `no-cache`; everything else gets an hour. Nothing here is content-hashed, so a
+  long-lived cache would strand readers on an old build.
+- **`version.json` is uploaded last.** It is the update probe — the app compares
+  its own stamped hash against it, and that check is a bare inequality. Uploaded
+  before the shell, it tells every open client that an update exists while the
+  update is not there yet, and the reload it offers cannot clear the banner.
+- **`manifest.webmanifest` is re-uploaded with its real Content-Type**
+  (`application/manifest+json`): the CLI's extension map does not know
+  `.webmanifest`, and a manifest served as `application/octet-stream` can stop the
+  PWA installing. `scripts/host.mjs` needed the same fix for local previews.
+- **The CloudFront prefix is invalidated**, which is load-bearing rather than a
+  nicety: assets carry an hour's cache, so an un-invalidated deploy can serve a
+  reader a mixture of two builds.
+
+The prefix is guarded, because `s3://util.awltux.trade` is shared with the site
+root and the sibling projects and every sync runs with `--delete`: an empty prefix
+is refused outright, and anything outside `pixelpalette/` needs an explicit
+`--allow-foreign-prefix`.
+
 ## Project layout
 
 ```

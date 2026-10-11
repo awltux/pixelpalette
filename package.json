@@ -10,6 +10,7 @@
     "test": "node --test --test-isolation=none",
     "host": "node scripts/host.mjs",
     "build:watch": "node scripts/watch.mjs",
-    "dev": "node scripts/dev.mjs"
+    "dev": "node scripts/dev.mjs",
+    "deploy": "node scripts/deploy.mjs"
   }
 }
