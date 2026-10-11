@@ -2668,23 +2668,29 @@
     return s;
   }
 
-  /* One line describing the live camera, so a device run answers the questions
-     the code otherwise leaves to guesswork: is the feed zoom real sensor zoom or
-     CSS only, what resolution did the camera actually give us, and can the lens
-     be held (modes + a position range)? */
-  function gdbgCameraLine() {
+  /* Three SHORT lines describing the live camera, so a device run answers the
+     questions the code otherwise leaves to guesswork: the resolution the camera
+     actually granted, whether feed zoom is real sensor zoom or CSS only, and
+     whether the lens can be held. Deliberately narrow - this is read on a phone,
+     and one long line used to run off the edge of the screen. */
+  function gdbgCameraLines() {
     const v = els && els.video;
     const size = v && v.videoWidth ? v.videoWidth + 'x' + v.videoHeight : 'no video';
-    const zoom = feedSensorCap
-      ? 'sensor max ' + feedSensorCap.max + ' now ' + Math.round(feedSensorZoom * 100) / 100 +
-        ' css ' + Math.round(feedCss * 100) / 100
-      : 'none (CSS only)';
-    const modes = focusModes && focusModes.length ? focusModes.join('/') : 'none';
-    const dist = focusDistanceCap
-      ? 'dist ' + focusDistanceCap.min + '-' + focusDistanceCap.max
-      : 'dist n/a';
-    return 'cam  ' + size + '  zoom ' + zoom + '  focus ' + modes + '  ' + dist +
-      '  ' + (focusHeld ? 'HELD' : 'auto');
+    const r2 = (n) => Math.round(n * 100) / 100;
+    const has = (m) => !!(focusModes && focusModes.indexOf(m) >= 0);
+    const modes = !focusModes || !focusModes.length ? 'none'
+      : has('manual') ? 'manual+cont'
+        : has('continuous') ? 'cont only'
+          : focusModes.join('/');
+    return [
+      'cam   ' + size,
+      feedSensorCap
+        ? 'zoom  sensor ' + feedSensorCap.max + 'x max  now ' + r2(feedSensorZoom) + '  css ' + r2(feedCss)
+        : 'zoom  css only  now ' + r2(feedCss),
+      'foc   ' + modes + '  ' +
+        (focusDistanceCap ? 'dist ' + focusDistanceCap.min + '-' + focusDistanceCap.max : 'dist n/a') +
+        '  ' + (focusHeld ? 'HELD' : 'auto'),
+    ];
   }
 
   function gdbgRender() {
@@ -2692,10 +2698,14 @@
     if (!gdbgEl) {
       if (!els || !els.overlay || !document.createElement) return;
       const d = document.createElement('div');
+      // `pre-wrap`, not `pre`: a long line used to run off the edge of a phone
+      // screen, where `overflow: hidden` clipped it and the reading was lost. Now
+      // it wraps at spaces (and anywhere as a last resort) so nothing can vanish.
       d.style.cssText = 'position:fixed;left:8px;top:8px;z-index:60;pointer-events:none;' +
-        'white-space:pre;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;' +
+        'white-space:pre-wrap;overflow-wrap:anywhere;' +
+        'font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;' +
         'color:#eaffef;background:rgba(0,0,0,.62);border-radius:6px;padding:6px 8px;' +
-        'border:1px solid rgba(120,255,180,.45);max-width:86vw;overflow:hidden;';
+        'border:1px solid rgba(120,255,180,.45);max-width:92vw;overflow:hidden;';
       els.overlay.appendChild(d);
       gdbgEl = d;
     }
@@ -2704,13 +2714,13 @@
     const lines = ['GESTURE PROBE  ?gdebug=1'];
     for (let i = 0; i < gdbgLines.length; i++) lines.push(gdbgLines[i]);
     lines.push(
-      'tap  n=' + s.taps + '  last ' + Math.round(s.tapLast) + ' ms  range ' + rng(s.tapMin, s.tapMax, ' ms') +
-        '  cap ' + HIDE_TAP_MS + (s.taps && s.tapMax > HIDE_TAP_MS ? '  <- TAPS TOO SLOW' : ''),
-      'swip n=' + s.swipes + '  last ' + Math.round(s.swLast) + ' px  range ' + rng(s.swMin, s.swMax, ' px') +
-        '  min ' + SWIPE_PX + (s.swipes && s.swMin < SWIPE_PX ? '  <- SWIPES TOO SHORT' : ''),
-      'dbl  n=' + s.gaps + '  last ' + Math.round(s.gapLast) + ' ms  min ' +
-        (isFinite(s.gapMin) ? Math.round(s.gapMin) : '-') + ' ms  window ' + DOUBLE_PRESS_MS,
-      gdbgCameraLine(),
+      'tap  n=' + s.taps + '  last ' + Math.round(s.tapLast) + 'ms  range ' + rng(s.tapMin, s.tapMax, '') +
+        '  cap ' + HIDE_TAP_MS + (s.taps && s.tapMax > HIDE_TAP_MS ? '  <- TOO SLOW' : ''),
+      'swp  n=' + s.swipes + '  last ' + Math.round(s.swLast) + 'px  range ' + rng(s.swMin, s.swMax, '') +
+        '  min ' + SWIPE_PX + (s.swipes && s.swMin < SWIPE_PX ? '  <- TOO SHORT' : ''),
+      'dbl  n=' + s.gaps + '  last ' + Math.round(s.gapLast) + 'ms  min ' +
+        (isFinite(s.gapMin) ? Math.round(s.gapMin) : '-') + '  win ' + DOUBLE_PRESS_MS,
+      ...gdbgCameraLines(),
     );
     gdbgEl.textContent = lines.join('\n');
   }
