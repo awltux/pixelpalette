@@ -33,6 +33,17 @@ test('SEO files (robots.txt, sitemap.xml) are copied into dist/', () => {
   }
 });
 
+test('the licence and readme ship with the build, so a deploy cannot delete them', () => {
+  // Both are already live in the bucket and are NOT generated, so the only thing
+  // keeping them there is the build copying them into dist/ - a deploy runs with
+  // --delete, which removes anything the build does not produce (HANDOVER §13).
+  for (const f of ['LICENCE.md', 'README.md']) {
+    const p = resolve(DIST, f);
+    assert.ok(statSync(p).isFile(), `${f} present in dist/`);
+    assert.ok(readFileSync(p, 'utf8').length > 0, `${f} non-empty`);
+  }
+});
+
 const html = readFileSync(OUT, 'utf8');
 
 test('CSS is inlined (no external stylesheet) with only the app + no-JS guard <style>', () => {

@@ -56,6 +56,10 @@ Run one test file: `node --test --test-isolation=none test/tracing.test.mjs`
   `icon-512.png`
 - **`src/assets/` → `dist/assets/`** — `favicon.svg` (also inlined into the HTML)
   and `og-image.svg`, which the og:image / twitter:image tags need as real files
+- **`LICENCE.md` and `README.md` from the repo root** (`ROOT_PUBLISHED`) — the app
+  is AGPL, so the licence text should travel with the deployed copy, and both were
+  already live in the bucket. They are copied so a deploy's `--delete` cannot
+  remove them; `test/build.test.mjs` pins that. That makes **9 static files**.
 
 `dist/` is in `.gitignore`; it is a regenerable artifact. **Deploy the whole
 `dist/` folder**, not just `index.html` — a partial deploy breaks the offline
@@ -301,7 +305,7 @@ wrong probe.
 ## 8. Verification checklist before saying "done"
 
 ```sh
-npm run build     # must exit 0, "Built … (… KB, 21 JS files inlined + 7 static file(s))"
+npm run build     # must exit 0, "Built … (… KB, 21 JS files inlined + 9 static file(s))"
 npm test          # expect 0 fail (144 at the time of writing)
 ```
 
@@ -596,11 +600,12 @@ proven on this host.
 - **`version.json` last is a deliberate deviation** from the reference. It is the
   update probe and the check is a bare inequality, so a probe uploaded before the
   shell tells open clients an update exists that a reload cannot deliver.
-- **Known hazard at the time of writing:** the live prefix also holds `LICENCE.md`
-  and `README.md`, which the build does not produce, so `--delete` removes them
-  (the dry run reports both). Either copy what should stay public into `src/` —
-  the build ships top-level static files (§2) — or accept the removal. Decide
-  before the first real deploy.
+- **`LICENCE.md` and `README.md` stay live by being build outputs.** They are in
+  the bucket but are not generated, so `--delete` would have removed them; the
+  build now copies both from the repo root into `dist/` (`ROOT_PUBLISHED`), and
+  `test/build.test.mjs` pins it. The first dry run caught this — the deploy intends
+  to delete anything the build does not produce, so anything that should survive
+  has to be part of the build.
 - `test/deploy.test.mjs` pins the settings precedence, the prefix guard and the
   exact `aws` argument lists, because a wrong `--include`/`--exclude` set would not
   fail: it would delete.

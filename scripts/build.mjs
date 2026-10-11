@@ -29,6 +29,13 @@ const ROOT = resolve(__dirname, '..');
 const SRC = resolve(ROOT, 'src');
 const DIST = resolve(ROOT, 'dist');
 
+// Root-level files that belong on the published site, copied into dist/ so they
+// ship with every deploy. LICENCE.md because this app is AGPL and the licence
+// text should travel with the deployed copy; README.md because the live prefix
+// has always served it. Both already exist in the S3 bucket, and without this the
+// deploy's --delete would remove them (see HANDOVER §13).
+const ROOT_PUBLISHED = ['LICENCE.md', 'README.md'];
+
 // Exact strings used by the source HTML for each asset/script.
 const STYLE_TAG = '<link rel="stylesheet" href="css/app.css">';
 const FAVICON_ATTR = 'href="assets/favicon.svg"';
@@ -141,6 +148,15 @@ function build() {
       copyFileSync(from, resolve(assetsDest, name));
       copied++;
     }
+  }
+
+  // --- copy root-level files that belong on the published site ---
+  // (see ROOT_PUBLISHED: the licence must not vanish from a live deploy)
+  for (const name of ROOT_PUBLISHED) {
+    const from = resolve(ROOT, name);
+    if (!existsSync(from)) continue;
+    copyFileSync(from, resolve(DIST, name));
+    copied++;
   }
 
   // --- stamp + emit the service worker (offline caching) ---

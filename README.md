@@ -128,6 +128,11 @@ root and the sibling projects and every sync runs with `--delete`: an empty pref
 is refused outright, and anything outside `pixelpalette/` needs an explicit
 `--allow-foreign-prefix`.
 
+Because every sync runs with `--delete`, anything that should stay live has to be
+something the build produces. `LICENCE.md` and `README.md` are copied from the
+repo root into `dist/` for exactly that reason — the AGPL licence text travels
+with the deployed copy instead of being swept away by the next deploy.
+
 ## Project layout
 
 ```
