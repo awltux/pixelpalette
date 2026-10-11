@@ -778,6 +778,16 @@ Google Search Console verification: paste the meta tag here after adding the sit
         <button id="project-feed-reset" class="btn" type="button" data-i18n="traceFeedReset" title="Reset feed zoom">100%</button>
         <button id="project-feed-in" class="btn hud-icon" type="button" aria-label="Zoom feed in" title="Zoom feed in">+</button>
       </span>
+      <!-- Manual focus distance. Holding the lens can only be done by CHOOSING a
+           distance: this camera reports 0.08 (the infinity end) from
+           getSettings().focusDistance while autofocus runs, so "freeze where it is
+           now" cannot be read - only dialled. Only shown when the camera exposes a
+           focusDistance range. See HANDOVER. -->
+      <label class="project-ctrl project-focus" id="project-focus-row" data-i18n-attr="title:traceFocusDistHelp" hidden>
+        <span class="project-ctrl-label" data-i18n="traceFocusDist">Focus</span>
+        <input type="range" id="project-focus-dist" min="0.08" max="4.28" step="0.01" value="1">
+        <output id="project-focus-dist-val">auto</output>
+      </label>
     </div>
 
     <button id="project-exit" class="btn btn-primary hud-exit" type="button" data-i18n="traceExit">Exit projection</button>

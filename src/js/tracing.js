@@ -73,6 +73,8 @@
   let focusLocked = false;       // the user asked for a hold (image is locked)
   let focusHeld = false;         // a manual hold is actually applied
   let focusHold = null;          // the pinned lens position
+  let focusUserDist = null;      // the distance the user dialled (dioptres), or null
+  let focusRead = '-';           // what the camera reported at the last lock attempt
   let focusApplied = null;       // the focus mode we last asked the camera for
   let focusSent = '-';           // what we last sent, shown by the probe
   let focusGot = '-';            // what the camera reported back, shown by the probe
@@ -308,6 +310,7 @@
         if (typeof p.feedS === 'number' && p.feedS >= 1) feedS = p.feedS;
         if (typeof p.feedTx === 'number') feedTx = p.feedTx;
         if (typeof p.feedTy === 'number') feedTy = p.feedTy;
+        if (typeof p.focusDist === 'number' && p.focusDist > 0) focusUserDist = p.focusDist;
         // until a live track's zoom capability is probed, all magnification is CSS
         feedCss = feedS;
         feedSensorZoom = 1;
@@ -324,7 +327,7 @@
 
   function savePrefs() {
     try {
-      localStorage.setItem(PREF_KEY, JSON.stringify({ alpha, grid: gridOn, gridCell, grey: greyOn, line: lineOn, lineBlur, lineStrength, lineKey, lineMagenta, feedOn, feedS, feedTx, feedTy, arMagnet, arFine, align: alignScale }));
+      localStorage.setItem(PREF_KEY, JSON.stringify({ alpha, grid: gridOn, gridCell, grey: greyOn, line: lineOn, lineBlur, lineStrength, lineKey, lineMagenta, feedOn, feedS, feedTx, feedTy, focusDist: focusUserDist, arMagnet, arFine, align: alignScale }));
       localStorage.setItem(CAM_KEY, facing);
     } catch (e) { /* ignore */ }
   }
@@ -912,8 +915,15 @@
   }
 
   /* What to send for the focus lock, or null when nothing should be sent at all.
-     `off` (the default) always means "send nothing": locking the image must not
-     disturb a camera that is already in focus. */
+     `off` also means "send nothing": locking the image must not disturb a camera
+     that is already in focus.
+
+     `pin` uses the distance the USER dialled, never the one the camera reports:
+     on the target device `getSettings().focusDistance` reads 0.08 (the infinity
+     end of a 0.08-4.28 dioptre range) while autofocus is running, i.e. it reports
+     the minimum rather than where the lens actually is. Pinning that racks the
+     lens to infinity - which is precisely the "jumps out of focus" that was
+     reported. Where the lens is cannot be read, so it has to be chosen. */
   function focusPlanFor(plan) {
     const strategy = (plan && plan.strategy) || 'off';
     if (strategy === 'off') return null;
@@ -924,17 +934,13 @@
       return auto ? { mode: auto, distance: null } : null;
     }
     if (strategy === 'shot') {
-      // one autofocus pass, then the camera holds: this stops continuous hunting
-      // without guessing a lens position, so it cannot park the lens somewhere
-      // wrong the way manual can
+      // one autofocus pass, then the camera holds (not offered on the target
+      // device, which reports manual + continuous only)
       return hasMode(modes, FOCUS_SHOT) ? { mode: FOCUS_SHOT, distance: null } : null;
     }
-    // `pin`: manual PLUS the position the lens is already at. Manual with no
-    // distance is not a freeze - engines may move the lens to a default - so with
-    // no reported position there is nothing safe to send.
     const manual = focusModeFor(modes, true);
     if (!manual) return null;
-    const d = roundFocusDistance(plan.distance, plan.cap);
+    const d = roundFocusDistance(plan.userDistance, plan.cap);
     return d === null ? null : { mode: manual, distance: d };
   }
 
@@ -1040,10 +1046,50 @@
     toast(I18N.t('traceFocusUnsupported'));
   }
 
+  /* Show, range and label the manual focus control. It exists only for cameras
+     that expose a focusDistance range, and it reads `auto` until the user dials a
+     distance, so "the lens is not being held" is visible rather than implied. */
+  function syncFocusDist() {
+    if (!els || !els.focusDist) return;
+    const cap = focusDistanceCap;
+    if (els.focusRow) els.focusRow.hidden = !cap;
+    if (!cap) return;
+    els.focusDist.min = String(cap.min);
+    els.focusDist.max = String(cap.max);
+    els.focusDist.step = String(cap.step > 0 ? cap.step : 0.01);
+    if (focusUserDist !== null) els.focusDist.value = String(focusUserDist);
+    if (els.focusDistVal) {
+      els.focusDistVal.textContent = focusUserDist === null
+        ? I18N.t('traceFocusDistAuto')
+        : focusUserDist.toFixed(2) + ' \u2248 ' + Math.round(100 / focusUserDist) + ' cm';
+    }
+  }
+
+  /* The user dialled the focus distance. Applied straight away - manual focus at
+     the chosen distance - so the effect is visible while dialling, and kept in
+     prefs for the image lock to re-apply. Dioptres (1 / metres) is the unit the
+     constraint and the readout both use. */
+  function setFocusDistance(v, persist) {
+    focusUserDist = roundFocusDistance(v, focusDistanceCap);
+    syncFocusDist();
+    if (persist !== false) savePrefs();
+    if (focusUserDist === null) return;
+    const track = videoTrack();
+    if (!track) return;
+    // the user is taking manual control, so hold the lens here from now on
+    focusApplied = focusModeFor(focusModes, true) || null;
+    focusHeld = !!focusApplied;
+    focusHold = focusHeld ? focusUserDist : null;
+    focusSent = focusApplied ? focusApplied + ' ' + focusHold : '-';
+    const set = cameraAdvancedSet(cameraState());
+    const p = set ? applyCameraConstraints(track, set) : null;
+    if (p) p.catch(() => {});
+  }
+
   /* Hold or release the lens with the image lock. Only complains when a lock was
      actually wanted: releasing on a device that never had it should be silent.
-     With the default strategy (`off`) this returns immediately, so pressing Lock
-     cannot disturb the camera at all. */
+     With the strategy `off` this returns immediately, so pressing Lock cannot
+     disturb the camera at all. */
   function applyFocusLock(wantLock) {
     focusLocked = !!wantLock;
     const track = videoTrack();
@@ -1052,13 +1098,23 @@
       focusHeld = false; focusHold = null; focusApplied = null; focusSent = '-';
       return;
     }
+    // Nothing was ever applied and nothing is held, so there is nothing to
+    // release: sending an autofocus constraint here would be a pointless pipeline
+    // reconfiguration. This used to happen at session start, where
+    // applyPrefsToHud "unlocks" an image that was never locked.
+    if (!focusLocked && !focusHeld && focusApplied === null) return;
     const plan = focusPlanFor({
       strategy: FOCUS_STRATEGY,
       modes: focusModes,
       locked: focusLocked,
-      distance: focusLocked ? currentFocusDistance(track) : null,
+      userDistance: focusUserDist,
       cap: focusDistanceCap,
     });
+    // what the camera claims the lens is at, for the probe: it reads the minimum
+    // (infinity) while autofocus runs on the target device, which is why the
+    // distance above comes from the slider instead
+    const read = focusLocked ? currentFocusDistance(track) : null;
+    focusRead = typeof read === 'number' ? Math.round(read * 1000) / 1000 : (focusLocked ? 'none' : '-');
     focusHeld = !!(plan && plan.mode === FOCUS_LOCK);
     focusHold = plan ? plan.distance : null;
     // no plan while locking means this camera cannot do it: say so once, and make
@@ -1195,6 +1251,7 @@
         step: typeof fd.step === 'number' ? fd.step : 0,
       };
     }
+    syncFocusDist();
     syncFeedZoom();
   }
 
@@ -2792,7 +2849,7 @@
           ? 'dist ' + focusDistanceCap.min + '-' + focusDistanceCap.max +
             (focusDistanceCap.step ? ' step ' + focusDistanceCap.step : '')
           : 'dist n/a') +
-        '  sent ' + focusSent + '  got ' + focusGot,
+        '  sent ' + focusSent + '  got ' + focusGot + '  read ' + focusRead,
     ];
   }
 
@@ -3344,6 +3401,9 @@
       exitConfirm: grab('project-exit-confirm'),
       exitYes: grab('project-exit-yes'),
       exitCancel: grab('project-exit-cancel'),
+      focusRow: grab('project-focus-row'),
+      focusDist: grab('project-focus-dist'),
+      focusDistVal: grab('project-focus-dist-val'),
       feedToggle: grab('project-feedzoom'),
       feedIn: grab('project-feed-in'),
       feedOut: grab('project-feed-out'),
@@ -3403,6 +3463,7 @@
     });
     if (els.feedToggle) els.feedToggle.addEventListener('click', () => { if (!locked) setFeedOn(!feedOn); });
     if (els.feedIn) els.feedIn.addEventListener('click', () => { if (locked) return; setFeedOn(true); feedZoomBy(FEED_BTN_STEP); });
+    if (els.focusDist) els.focusDist.addEventListener('input', () => setFocusDistance(parseFloat(els.focusDist.value)));
     if (els.feedOut) els.feedOut.addEventListener('click', () => { if (locked) return; setFeedOn(true); feedZoomBy(1 / FEED_BTN_STEP); });
     if (els.feedReset) els.feedReset.addEventListener('click', () => { if (locked) return; feedReset(); });
     els.lineBtn.addEventListener('click', toggleLine);

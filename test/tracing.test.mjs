@@ -545,14 +545,21 @@ test('the focus strategy decides what locking the image may do to the camera', (
   assert.equal(focusPlanFor({ strategy: 'off', modes: both, locked: false }), null);
   // a plan with no strategy at all does nothing (the pure function has no default)
   assert.equal(focusPlanFor({ modes: both, locked: true, distance: 1 }), null);
-  // PIN carries the lens position the camera reports, and is refused without one
-  assert.deepEqual(host(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: 1.25, cap: null })),
+  // PIN carries the distance the USER dialled, and is refused without one. It must
+  // never fall back to the distance the camera reports: on the target device that
+  // reads 0.08 (the infinity end of a 0.08-4.28 range) while autofocus runs, so
+  // pinning it racked the lens to infinity - the reported "jumps out of focus".
+  assert.deepEqual(host(focusPlanFor({ strategy: 'pin', modes: both, locked: true, userDistance: 1.25, cap: null })),
     { mode: 'manual', distance: 1.25 });
-  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: null }), null);
-  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: undefined }), null);
-  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: NaN }), null);
-  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: '0.5' }), null);
-  assert.equal(focusPlanFor({ strategy: 'pin', modes: ['continuous'], locked: true, distance: 1 }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: 1.25 }), null,
+    'the reported distance is ignored');
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: 0.08 }), null,
+    'especially the bogus infinity reading');
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, userDistance: null }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, userDistance: undefined }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, userDistance: NaN }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: both, locked: true, userDistance: '0.5' }), null);
+  assert.equal(focusPlanFor({ strategy: 'pin', modes: ['continuous'], locked: true, userDistance: 1 }), null);
   // SHOT takes one autofocus pass and never guesses a position
   assert.deepEqual(host(focusPlanFor({ strategy: 'shot', modes: both, locked: true, distance: 9 })),
     { mode: 'single-shot', distance: null });

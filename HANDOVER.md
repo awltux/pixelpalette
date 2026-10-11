@@ -168,35 +168,37 @@ Support is re-probed per stream in `detectSensorZoom()` (`focusModes`) because i
 can differ per camera, and `switchCamera` re-applies the current state to the
 fresh track. Pinning (AR) holds the lens too, since it wants a static reference.
 
-**The requirement, in the user's words: freeze the lens where it is currently
-focused, so a hand moving through the shot does not steal focus.** That is
-`manual` PLUS the distance read back from `getSettings().focusDistance` — the
-`pin` strategy, and the default. `?focus=off` sends nothing to the camera at all
-and `?focus=shot` takes one `single-shot` autofocus pass then holds.
-
-The probe readout that settled it (from the target device):
+**The requirement: hold the lens so a hand moving through the shot cannot steal
+focus. On this camera that cannot be done by "freezing where it is now" — the
+position is not readable.** The probe readout that settled it:
 
 ```
-cam  1920x1080  focus:pin
-zoom sensor max 10 now 1.2 css 1
-foc  manual/single-shot/continuous  dist 0.08-10 step …  sent manual 1.2  got manual 1.21
+foc  manual+cont  dist 0.08-4.28 step 0.01  sent continuous  got continuous 0.08
 ```
 
-Two traps make this harder than it looks, and both are why the earlier attempts
-failed:
+- The camera offers **`manual` and `continuous` only** (no `single-shot`), so
+  `?focus=shot` is not available here.
+- The range is **0.08–4.28 dioptres with step 0.01** — about 12 m (∞) down to 23 cm.
+- **`getSettings().focusDistance` reads `0.08` (the infinity end) while autofocus
+  is running**, i.e. it reports the minimum rather than where the lens actually is.
+  Pinning that value racks the lens to infinity — which is exactly the "jumps out
+  of focus" reported twice. Where the lens is cannot be read, so it must be chosen.
+
+Hence the **Focus slider** in the tracing HUD: manual focus at a distance the user
+dials (shown in dioptres and cm), applied immediately so the effect is visible
+while dialling, persisted in prefs as `focusDist`, re-applied by the image Lock,
+and released back to autofocus on unlock. It appears only when the camera exposes a
+`focusDistance` range. `focusPlanFor` pins the *user's* distance and refuses to
+fall back to the reported one; `?focus=off` still sends nothing at all.
+
+Two traps remain worth knowing:
 
 - **`manual` with no distance is not a freeze** — engines may move the lens to a
-  default, which is the defocus the user reported first.
-- **Every `applyConstraints` is a pipeline reconfiguration on this device**, so
-  re-applying the set as a side effect (pressing Lock re-sent the persisted feed
-  zoom too) restarted autofocus. `sensorZoomSettled` now skips a zoom apply when
-  the camera already reports that value.
-
-Because `advanced` constraints resolve whether or not they are honoured, the pin
-is **verified by reading the result back** (`focusVerify`) and **rolled back to
-autofocus** when the camera did not do what was asked — an unconfirmed pin would
-otherwise leave the picture soft with no clue why. `?focus=shot` is the gentler
-alternative, and it can settle on whatever is in view at the moment you lock.
+  default, so a mode-only "lock" causes the defocus it was meant to prevent.
+- **Every `applyConstraints` is a pipeline reconfiguration on this device**, so a
+  redundant apply is not free: `sensorZoomSettled` skips a zoom apply that is
+  already in effect, and `applyFocusLock` no longer sends a release at session
+  start when nothing was ever applied.
 
 ### Camera capture: resolution and what "zoom" really is
 
