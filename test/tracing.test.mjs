@@ -386,15 +386,40 @@ test('a second press inside the window swaps the stop instead of peeking', () =>
   assert.equal(f.effects[0].stop, GESTURE_STOPS[1]);
 });
 
-test('the two-stop dial wraps back to the home stop', () => {
+test('the dial walks every stop and wraps back to the home one', () => {
   const { gestureInit, gestureStep, GESTURE_STOPS } = loadTracing();
-  assert.equal(GESTURE_STOPS.length, 2, 'opacity + zoom');
-  let s = gestureStep(gestureInit(), { type: 'press', now: 0 }).state;
-  s = gestureStep(s, { type: 'press', now: 100 }).state;
-  assert.equal(s.stop, 1);
-  s = gestureStep(s, { type: 'press', now: 200 }).state;
-  s = gestureStep(s, { type: 'press', now: 300 }).state;
+  assert.deepEqual(host(GESTURE_STOPS), ['opacity', 'zoom', 'focus']);
+  const double = (st, t) => gestureStep(
+    gestureStep(st, { type: 'press', now: t }).state,
+    { type: 'press', now: t + 100 },
+  ).state;
+  let s = gestureInit();
+  s = double(s, 0);
+  assert.equal(s.stop, 1, 'one double press moves on');
+  s = double(s, 200);
+  assert.equal(s.stop, 2);
+  s = double(s, 400);
   assert.equal(s.stop, 0, 'wraps around');
+});
+
+test('a focus swipe steps the lens distance by the rung', () => {
+  const { focusNudge, FOCUS_STEPS_D } = loadTracing();
+  const cap = { min: 0.08, max: 4.28, step: 0.01 };
+  const steps = host(FOCUS_STEPS_D);
+  assert.ok(steps.length >= 2);
+  // direction follows the HUD slider: + raises the dioptre value = focus NEARER
+  assert.ok(Math.abs(focusNudge(2, 1, 0, cap) - 2.01) < 1e-9);
+  assert.ok(Math.abs(focusNudge(2, -1, 0, cap) - 1.99) < 1e-9);
+  // coarser rungs travel further
+  assert.ok(Math.abs(focusNudge(2, 1, 3, cap) - 2.1) < 1e-9);
+  // nothing dialled yet: the first swipe starts mid-range, not at an arbitrary end
+  const mid = (cap.min + cap.max) / 2;
+  assert.ok(Math.abs(focusNudge(null, 1, 0, cap) - (mid + 0.01)) < 1e-9);
+  // the camera's range is a hard limit, whichever way the ladder is walked
+  assert.equal(focusNudge(cap.min, -1, 6, cap), cap.min);
+  assert.equal(focusNudge(cap.max, 1, 6, cap), cap.max);
+  // and a camera that reports no range still yields a usable number
+  assert.equal(typeof focusNudge(1, 1, 0, null), 'number');
 });
 
 test('presses further apart than the window stay two separate presses', () => {

@@ -145,12 +145,13 @@
      selected; a double press swaps the stop. Only the flat projection view has
      stops so far - the AR ("map to surface") stop list is a later step, and
      `gestureContext()` is the single place that decides which list is live. */
-  const GESTURE_STOPS = ['opacity', 'zoom'];
-  // What a single press does on each stop. ZOOM is deliberately inert: a press
-  // is easy to fire by accident with the remote, and resetting the alignment
-  // discards both the zoom and the pan. Reset therefore lives on the Fit image
-  // button only (and unlocking still allows a free pinch-zoom).
-  const STOP_PRESS = { opacity: 'peek', zoom: 'none' };
+  const GESTURE_STOPS = ['opacity', 'zoom', 'focus'];
+  // What a single press does on each stop. ZOOM and FOCUS are deliberately inert:
+  // a press is easy to fire by accident with the remote, and resetting discards the
+  // alignment while releasing focus hands the lens back to autofocus - the very
+  // hunting the freeze exists to stop. Reset lives on the Fit image button, and
+  // focus is dialled rather than reset.
+  const STOP_PRESS = { opacity: 'peek', zoom: 'none', focus: 'none' };
   const GESTURE_HOME_MS = 20000;   // idle before the dial returns to OPACITY
   // Same-direction swipes closer together than this climb the ladder. It has to
   // be LONG: the Bluetooth remote emits one up/down swipe per button gesture and
@@ -170,7 +171,13 @@
   // one, which is what made the earlier 1/5/10/20 ladder feel jumpy. The wheel
   // of rungs is walked one per same-direction swipe (see SWIPE_REPEAT_MAX).
   const ZOOM_STEPS_PX = [2, 2, 2, 4, 4, 6, 6];
-  const SWIPE_REPEAT_MAX = ZOOM_STEPS_PX.length - 1; // deepest rung a run can reach
+  // FOCUS walks the same repeat ladder, stepping the lens distance in DIOPTRES
+  // (1 / metres). 0.01 d is roughly 2 mm of lens travel at 50 cm, so the finest
+  // rung sharpens by hand; the coarsest crosses the camera's whole range in a few
+  // swipes. Only used for cameras that expose a focusDistance range (§5).
+  const FOCUS_STEPS_D = [0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8];
+  // deepest rung a run can reach, whichever stop's ladder is the longer one
+  const SWIPE_REPEAT_MAX = Math.max(ZOOM_STEPS_PX.length, FOCUS_STEPS_D.length) - 1;
   // Alignment band, RELATIVE to the zoom in effect when the dial took over
   // (`alignSeed`), so the guarantee "a stray gesture cannot lose the image"
   // holds whatever the unlocked pinch-zoom left behind. With the usual seed of 1
@@ -1044,6 +1051,19 @@
     if (focusNoticeShown) return;
     focusNoticeShown = true;
     toast(I18N.t('traceFocusUnsupported'));
+  }
+
+  /* One focus swipe, from the gesture dial: step the lens distance by the current
+     rung. The direction follows the HUD slider (+ raises the dioptre value, which
+     moves the focus NEARER), so up/right = nearer and down/left = further. With
+     nothing dialled yet the step starts from the middle of the camera's range -
+     a plausible arm's-length guess rather than an arbitrary end of it. */
+  function focusNudge(current, dir, rung, cap) {
+    const i = Math.max(0, Math.min(FOCUS_STEPS_D.length - 1, Math.round(rung) || 0));
+    const min = cap && typeof cap.min === 'number' ? cap.min : 0.08;
+    const max = cap && typeof cap.max === 'number' ? cap.max : 4.28;
+    const base = (typeof current === 'number' && isFinite(current)) ? current : (min + max) / 2;
+    return roundFocusDistance(base + dir * FOCUS_STEPS_D[i], cap);
   }
 
   /* Show, range and label the manual focus control. It exists only for cameras
@@ -3026,6 +3046,7 @@
     }
     if (ef.kind === 'step') {
       if (ef.stop === 'zoom') alignZoomStep(ef.dir, ef.rung);
+      else if (ef.stop === 'focus') setFocusDistance(focusNudge(focusUserDist, ef.dir, ef.rung, focusDistanceCap));
       // OPACITY keeps its fixed step (one swipe = ±10%), exactly as before
       else setAlpha(alpha + ef.dir * SWIPE_ALPHA_STEP);
       gestureChipOpen();
@@ -3087,22 +3108,37 @@
   function gestureChipSync() {
     if (!els || !els.dial) return;
     if (!gestureContext()) { els.dial.hidden = true; return; }
-    const zoom = GESTURE_STOPS[gState.stop] === 'zoom';
+    const stop = GESTURE_STOPS[gState.stop];
     els.dial.hidden = false;
-    if (els.dialStopO) els.dialStopO.classList.toggle('is-on', !zoom);
-    if (els.dialStopZ) els.dialStopZ.classList.toggle('is-on', zoom);
-    if (els.dialValue) {
-      els.dialValue.textContent = zoom
-        ? I18N.t('dialZoomWidth', { n: renderedWidth() })
-        : Math.round(alpha * 100) + '%';
+    // one pill per stop, driven from the list so a new stop needs no new branch
+    const pills = { opacity: els.dialStopO, zoom: els.dialStopZ, focus: els.dialStopF };
+    for (const key of Object.keys(pills)) {
+      if (pills[key]) pills[key].classList.toggle('is-on', key === stop);
     }
-    if (els.dialHint) {
-      // ZOOM has no press action, so its hint omits that segment entirely
-      const hint = [I18N.t(zoom ? 'dialSwipeZoom' : 'dialSwipeOpacity')];
-      if (!zoom) hint.push(I18N.t('dialPressOpacity'));
-      hint.push(I18N.t('dialSwap'));
-      els.dialHint.textContent = hint.join('  \u00b7  ');
+    if (els.dialValue) els.dialValue.textContent = dialValueText(stop);
+    if (els.dialHint) els.dialHint.textContent = dialHintText(stop);
+  }
+
+  /* What the chip prints for the selected stop. Every stop shows a real number, so
+     the value is verifiable at a glance from arm's length. */
+  function dialValueText(stop) {
+    if (stop === 'zoom') return I18N.t('dialZoomWidth', { n: renderedWidth() });
+    if (stop === 'focus') {
+      return focusUserDist === null
+        ? I18N.t('traceFocusDistAuto')
+        : I18N.t('dialFocusCm', { n: Math.round(100 / focusUserDist) });
     }
+    return Math.round(alpha * 100) + '%';
+  }
+
+  /* The chip states its own grammar: what a swipe does on this stop, what a press
+     does (only OPACITY acts on a press), and how to move on. */
+  function dialHintText(stop) {
+    const swipe = stop === 'zoom' ? 'dialSwipeZoom' : stop === 'focus' ? 'dialSwipeFocus' : 'dialSwipeOpacity';
+    const parts = [I18N.t(swipe)];
+    if (stop === 'opacity') parts.push(I18N.t('dialPressOpacity'));
+    parts.push(I18N.t('dialSwap'));
+    return parts.join('  \u00b7  ');
   }
 
   /* Classify a locked press by its net travel. Either axis counts, because the
@@ -3384,6 +3420,7 @@
       dial: grab('project-dial'),
       dialStopO: grab('dial-stop-opacity'),
       dialStopZ: grab('dial-stop-zoom'),
+      dialStopF: grab('dial-stop-focus'),
       dialValue: grab('dial-value'),
       dialHint: grab('dial-hint'),
       hudToggle: grab('project-hud-toggle'),
@@ -3565,7 +3602,7 @@
       swipeAxis, swipeStep,
       focusModeFor, cameraAdvancedSet, applyCameraConstraints,
       focusPlanFor, roundFocusDistance, hasMode, sensorZoomSettled, focusVerify,
-      FOCUS_STRATEGY,
+      FOCUS_STRATEGY, focusNudge, FOCUS_STEPS_D,
     },
   };
 

@@ -308,6 +308,11 @@ wrong probe.
 - **A camera request without width/height gets you whatever the browser feels
   like**, typically 640×480, not the sensor's capability. Say what you want with
   `ideal` values.
+- **`node --check` only parses.** A reference to a `const` before its declaration
+  parses fine and throws a ReferenceError when the module *loads* — adding the
+  focus rung table above the line that computed `SWIPE_REPEAT_MAX` from it did
+  exactly that. `test/smoke.test.mjs` and every `loadTracing()` call run the real
+  source, so the suite catches it immediately; run the tests, not just the parser.
 - **The deploy is destructive, and the bucket is shared.** `s3://util.awltux.trade`
   holds the site root and four sibling projects, and every sync runs with
   `--delete`, so a mistyped prefix does not fail — it deletes someone else's site.
@@ -430,22 +435,30 @@ correction has to come from the Bluetooth "remote". That remote physically
 taps/swipes the screen, so its gestures arrive as ordinary pointer events on the
 existing `hideTap` path, **not** as keyboard input.
 
-**Agreed shape:** a two-stop mode dial over the projection surface, active while
+**Agreed shape:** a mode dial over the projection surface, active while
 `locked && arMode === 'off'` (the same gate today's gestures use).
 
 | Stop | swipe up / down | press |
 | --- | --- | --- |
 | `OPACITY` (home) | overlay ±10% | peek / restore *(unchanged)* |
 | `ZOOM` | fine image scale (`ZOOM_STEPS_PX` rungs) | **nothing** — deliberately inert |
+| `FOCUS` | lens distance (`FOCUS_STEPS_D` rungs, only where the camera exposes a range) | **nothing** — deliberately inert |
 
-- **Double-press swaps which stop the remote drives** — a role swap, not a long
-  carousel walk. The on-screen chip prints both roles and highlights the active
-  one, so what the remote will do is never guessed.
-- Press is *not* mode-specific everywhere: peek keeps press on `OPACITY`, and the
-  `ZOOM` stop ignores press entirely (`STOP_PRESS`). Reset was removed from the
-  gesture path because it is far too easy to fire by accident with the remote,
-  and it discards **both** the zoom and the pan. Reset is the **Fit image**
-  button's job (or unlock and pinch-zoom).
+- **Double-press steps to the next stop and wraps** — with three stops the chip is
+  a short carousel, not a long walk. It prints every stop, highlights the active
+  one, and states what a swipe and a press will do there, so what the remote will
+  do is never guessed.
+- Press is *not* mode-specific everywhere: only `OPACITY` acts on a press (peek /
+  restore). `ZOOM` and `FOCUS` ignore it entirely (`STOP_PRESS`). Reset was removed
+  from the gesture path because it is far too easy to fire by accident with the
+  remote, and it discards **both** the zoom and the pan; releasing focus would hand
+  the lens back to autofocus, which is the hunting the freeze exists to stop.
+  Reset stays on the **Fit image** button, and focus is dialled rather than reset.
+- `FOCUS` steps the lens distance in dioptres (1 / metres) along the same repeat
+  ladder as `ZOOM`, and the direction follows the HUD slider: up/right raises the
+  dioptre value, i.e. focuses **nearer**. With nothing dialled yet the first swipe
+  starts from the middle of the camera's range — an arm's-length guess, not an
+  arbitrary end.
 - **Swipes count on either axis** (`swipeAxis` / `swipeStep`, §5). The remote's
   buttons encode direction by press count — a single press emits a swipe *up*, a
   double press a swipe *left* — so a vertical-only classifier would leave every
