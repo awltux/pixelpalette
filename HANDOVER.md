@@ -168,33 +168,35 @@ Support is re-probed per stream in `detectSensorZoom()` (`focusModes`) because i
 can differ per camera, and `switchCamera` re-applies the current state to the
 fresh track. Pinning (AR) holds the lens too, since it wants a static reference.
 
-**Focus on Lock is OFF by default, and that is the fix, not a retreat.** Two
-device reports of "pressing Lock knocks the camera out of focus", and the probe
-readout from the second one explains it:
+**The requirement, in the user's words: freeze the lens where it is currently
+focused, so a hand moving through the shot does not steal focus.** That is
+`manual` PLUS the distance read back from `getSettings().focusDistance` — the
+`pin` strategy, and the default. `?focus=off` sends nothing to the camera at all
+and `?focus=shot` takes one `single-shot` autofocus pass then holds.
+
+The probe readout that settled it (from the target device):
 
 ```
-cam  1920x1080  focus:off
+cam  1920x1080  focus:pin
 zoom sensor max 10 now 1.2 css 1
-foc  manual/single-shot/continuous  dist 0.08-...
+foc  manual/single-shot/continuous  dist 0.08-10 step …  sent manual 1.2  got manual 1.21
 ```
 
-The camera supports every focus mode and a lens-position range, and it grants
-1920×1080 — so the constraint *values* were never the problem. The mechanism is
-that **every `applyConstraints` is a pipeline reconfiguration on this device**,
-and pressing Lock re-applied the whole set as a side effect (including
-`zoom: 1.2`, the persisted feed zoom), which restarted autofocus. Two earlier
-attempts failed for the same reason: the first sent `manual` with no distance
-(engines may move the lens to a default), the second pinned the reported
-distance — but the *re-application itself* was doing the damage.
+Two traps make this harder than it looks, and both are why the earlier attempts
+failed:
 
-So: `FOCUS_STRATEGY` defaults to `off`, which means locking the image sends
-**nothing at all**, and `queueSensorZoom` skips an apply when the camera is
-already at that zoom (`sensorZoomSettled`). The active strategies are opt-in per
-session by URL — `?focus=shot` (one `single-shot` autofocus pass, then hold: the
-safest active one, since it ends in focus by definition) or `?focus=pin`
-(`manual` plus the position read back from `getSettings().focusDistance`,
-rounded to the device's step and clamped). `?gdebug=1` prints the strategy and
-the last set sent, so the next device run is measured rather than guessed.
+- **`manual` with no distance is not a freeze** — engines may move the lens to a
+  default, which is the defocus the user reported first.
+- **Every `applyConstraints` is a pipeline reconfiguration on this device**, so
+  re-applying the set as a side effect (pressing Lock re-sent the persisted feed
+  zoom too) restarted autofocus. `sensorZoomSettled` now skips a zoom apply when
+  the camera already reports that value.
+
+Because `advanced` constraints resolve whether or not they are honoured, the pin
+is **verified by reading the result back** (`focusVerify`) and **rolled back to
+autofocus** when the camera did not do what was asked — an unconfirmed pin would
+otherwise leave the picture soft with no clue why. `?focus=shot` is the gentler
+alternative, and it can settle on whatever is in view at the moment you lock.
 
 ### Camera capture: resolution and what "zoom" really is
 

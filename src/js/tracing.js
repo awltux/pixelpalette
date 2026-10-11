@@ -75,6 +75,7 @@
   let focusHold = null;          // the pinned lens position
   let focusApplied = null;       // the focus mode we last asked the camera for
   let focusSent = '-';           // what we last sent, shown by the probe
+  let focusGot = '-';            // what the camera reported back, shown by the probe
   let focusDistanceCap = null;   // {min,max,step} of the lens position, or null
   let focusNoticeShown = false;  // the unsupported notice is once per session
   let statusTimer = 0;
@@ -82,22 +83,30 @@
   const FOCUS_AUTO = 'continuous';  // normal autofocus
   const FOCUS_SHOT = 'single-shot'; // one autofocus pass, then hold
 
-  // What locking the image is allowed to do to the focus. THE DEFAULT IS `off`,
-  // because every active strategy made things worse on real hardware: switching to
-  // manual moved the lens to a default position, and even re-asserting
-  // `continuous` restarts an autofocus cycle, which reads as the picture jumping
-  // out of focus the moment Lock is pressed. So locking no longer touches the
-  // camera unless asked, per session, by URL:
-  //   ?focus=off   (default) leave autofocus completely alone
-  //   ?focus=shot  one autofocus pass on lock, then hold (single-shot)
-  //   ?focus=pin   manual, pinned to the lens position the camera reports
-  // `shot` is the safer of the two active ones: it ends in focus by definition and
-  // never moves the lens to a position we guessed at.
+  // What locking the image does to the focus.
+  //
+  // The requirement is a TRUE FREEZE at the distance the lens is already focused
+  // at, so that a hand moving through the shot does not steal focus. That is
+  // `manual` PLUS the position read back from getSettings().focusDistance - the
+  // `pin` strategy, and the default.
+  //
+  //   ?focus=pin   (default) manual, pinned to the position the camera reports
+  //   ?focus=shot  one single-shot autofocus pass, then hold
+  //   ?focus=off   never touch focus at all
+  //
+  // Two traps make this harder than it looks, both seen on a real device:
+  // switching to `manual` with NO distance can move the lens to a default, and
+  // every `applyConstraints` is a pipeline reconfiguration that can restart
+  // autofocus. So the pin is verified by reading the result back, and rolled back
+  // to autofocus when the camera did not honour it - a pin we cannot confirm would
+  // otherwise leave the picture soft with no way back. `shot` is the
+  // gentler alternative: it ends in focus by definition, but it re-runs autofocus,
+  // so it can settle on whatever is in view at the moment you lock.
   const FOCUS_STRATEGY = (function () {
     try {
       const m = /(^|[?&])focus=(off|shot|pin)(&|$)/.exec(global.location ? global.location.search : '');
-      return m ? m[2] : 'off';
-    } catch (e) { return 'off'; }
+      return m ? m[2] : 'pin';
+    } catch (e) { return 'pin'; }
   })();
   const FEED_MAX = 10;
   // how coarse/fine each zoom step is. Multiplicative per click; 1.10 =
@@ -929,6 +938,27 @@
     return d === null ? null : { mode: manual, distance: d };
   }
 
+  /* Did the camera actually hold the position we asked for? `advanced` constraints
+     resolve whether or not they were honoured, so reading the result back is the
+     only evidence. Returns null when confirmed, or a short reason when not - a pin
+     we cannot confirm has to be rolled back, because it can leave the picture soft
+     with no way for the user to know why. */
+  function focusVerify(got, hold, cap) {
+    if (typeof hold !== 'number' || !isFinite(hold)) return 'nothing was pinned';
+    if (!got) return 'camera reported nothing';
+    if (got.focusMode !== FOCUS_LOCK) return 'mode ' + (got.focusMode || 'none');
+    if (typeof got.focusDistance !== 'number') return 'no distance reported';
+    const step = cap && cap.step > 0 ? cap.step : 0;
+    const span = cap && typeof cap.max === 'number' && typeof cap.min === 'number'
+      ? Math.abs(cap.max - cap.min) : 0;
+    const tol = Math.max(step, span * 0.02, 1e-6);
+    if (Math.abs(got.focusDistance - hold) > tol) {
+      return 'at ' + (Math.round(got.focusDistance * 1000) / 1000) +
+        ' not ' + (Math.round(hold * 1000) / 1000);
+    }
+    return null;
+  }
+
   /* The lens position the camera reports right now, or null when it exposes none. */
   function currentFocusDistance(track) {
     if (!track || !track.getSettings) return null;
@@ -1036,23 +1066,36 @@
     focusApplied = plan ? plan.mode : (focusLocked ? focusModeFor(focusModes, false) : null);
     if (!plan && focusLocked) noticeFocusUnsupported();
     focusSent = focusApplied
-      ? focusApplied + (focusHold !== null ? ' ' + Math.round(focusHold * 100) / 100 : '')
+      ? focusApplied + (focusHold !== null ? ' ' + Math.round(focusHold * 1000) / 1000 : '')
       : '-';
+    focusGot = '-';
     const set = cameraAdvancedSet(cameraState());
     if (!set) return;
     const p = applyCameraConstraints(track, set);
     if (!p) { if (focusLocked) noticeFocusUnsupported(); return; }
-    // advanced constraints resolve even when the camera ignores them, so confirm
-    // what it actually did before telling the user anything
+    // advanced constraints resolve even when the camera ignores them, so the only
+    // evidence of success is what the track reports afterwards
     p.then(() => {
       let got = null;
-      try { got = track.getSettings ? track.getSettings().focusMode : null; } catch (e) { /* ignore */ }
-      if (focusApplied && got !== focusApplied) {
-        if (focusLocked) noticeFocusUnsupported();
+      try { got = track.getSettings ? track.getSettings() : null; } catch (e) { /* ignore */ }
+      const r3 = (n) => (typeof n === 'number' ? Math.round(n * 1000) / 1000 : '?');
+      focusGot = got ? (got.focusMode || 'none') +
+        (typeof got.focusDistance === 'number' ? ' ' + r3(got.focusDistance) : '') : 'n/a';
+      if (!focusHeld) {
+        // shot / release: there is no position to confirm
+        const heldNow = focusApplied === FOCUS_SHOT;
+        setStatus(I18N.t(heldNow ? 'traceFocusHeld' : 'traceFocusAuto'), heldNow);
         return;
       }
-      const heldNow = focusHeld || focusApplied === FOCUS_SHOT;
-      setStatus(I18N.t(heldNow ? 'traceFocusHeld' : 'traceFocusAuto'), heldNow);
+      const reason = focusVerify(got, focusHold, focusDistanceCap);
+      if (!reason) { setStatus(I18N.t('traceFocusHeld'), true); return; }
+      // roll back rather than risk leaving the picture soft
+      focusHeld = false;
+      focusHold = null;
+      focusApplied = focusModeFor(focusModes, false);
+      focusSent = (focusApplied || '-') + ' (rolled back)';
+      if (focusApplied) applyCameraConstraints(track, cameraAdvancedSet(cameraState()));
+      noticeFocusUnsupported();
     }).catch(() => { if (focusLocked) noticeFocusUnsupported(); });
   }
 
@@ -2745,8 +2788,11 @@
         ? 'zoom  sensor ' + feedSensorCap.max + 'x max  now ' + r2(feedSensorZoom) + '  css ' + r2(feedCss)
         : 'zoom  css only  now ' + r2(feedCss),
       'foc   ' + modes + '  ' +
-        (focusDistanceCap ? 'dist ' + focusDistanceCap.min + '-' + focusDistanceCap.max : 'dist n/a') +
-        '  sent ' + focusSent,
+        (focusDistanceCap
+          ? 'dist ' + focusDistanceCap.min + '-' + focusDistanceCap.max +
+            (focusDistanceCap.step ? ' step ' + focusDistanceCap.step : '')
+          : 'dist n/a') +
+        '  sent ' + focusSent + '  got ' + focusGot,
     ];
   }
 
@@ -3457,7 +3503,8 @@
       STOP_PRESS, alignBand, clampAlign, alignView, alignStepDelta,
       swipeAxis, swipeStep,
       focusModeFor, cameraAdvancedSet, applyCameraConstraints,
-      focusPlanFor, roundFocusDistance, hasMode, sensorZoomSettled,
+      focusPlanFor, roundFocusDistance, hasMode, sensorZoomSettled, focusVerify,
+      FOCUS_STRATEGY,
     },
   };
 

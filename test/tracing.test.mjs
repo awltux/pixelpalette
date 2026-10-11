@@ -534,13 +534,17 @@ test('applyCameraConstraints is best-effort and never throws', async () => {
 });
 
 test('the focus strategy decides what locking the image may do to the camera', () => {
-  const { focusPlanFor } = loadTracing();
+  const { focusPlanFor, FOCUS_STRATEGY } = loadTracing();
   const both = ['continuous', 'manual', 'single-shot'];
-  // OFF is the default, and it means "send nothing at all": locking the image must
-  // not disturb a camera that is already in focus (it did, twice, on real hardware)
+  // The default is a TRUE FREEZE - manual pinned to the distance the lens is at -
+  // so a hand moving through the shot cannot steal focus. That is the requirement;
+  // `off` and `shot` are the escape hatches.
+  assert.equal(FOCUS_STRATEGY, 'pin', 'locking freezes focus by default');
+  // OFF means "send nothing at all"
   assert.equal(focusPlanFor({ strategy: 'off', modes: both, locked: true, distance: 1 }), null);
-  assert.equal(focusPlanFor({ modes: both, locked: true, distance: 1 }), null, 'defaults to off');
   assert.equal(focusPlanFor({ strategy: 'off', modes: both, locked: false }), null);
+  // a plan with no strategy at all does nothing (the pure function has no default)
+  assert.equal(focusPlanFor({ modes: both, locked: true, distance: 1 }), null);
   // PIN carries the lens position the camera reports, and is refused without one
   assert.deepEqual(host(focusPlanFor({ strategy: 'pin', modes: both, locked: true, distance: 1.25, cap: null })),
     { mode: 'manual', distance: 1.25 });
@@ -560,6 +564,22 @@ test('the focus strategy decides what locking the image may do to the camera', (
       { mode: 'continuous', distance: null }, strategy);
     assert.equal(focusPlanFor({ strategy, modes: ['manual'], locked: false }), null, strategy);
   }
+});
+
+test('a pin is only accepted when the camera confirms it', () => {
+  const { focusVerify } = loadTracing();
+  const cap = { min: 0.08, max: 10, step: 0.1 };
+  // `advanced` constraints resolve whether or not they are honoured, so the
+  // read-back is the only evidence - and an unconfirmed pin is rolled back rather
+  // than left to soften the picture
+  assert.equal(focusVerify({ focusMode: 'manual', focusDistance: 1.2 }, 1.2, cap), null);
+  assert.equal(focusVerify({ focusMode: 'manual', focusDistance: 1.24 }, 1.2, cap), null, 'within the step');
+  assert.match(focusVerify({ focusMode: 'manual', focusDistance: 9 }, 1.2, cap), /at 9 not 1\.2/);
+  assert.match(focusVerify({ focusMode: 'continuous', focusDistance: 1.2 }, 1.2, cap), /mode continuous/);
+  assert.match(focusVerify({ focusMode: 'manual' }, 1.2, cap), /no distance reported/);
+  assert.match(focusVerify(null, 1.2, cap), /reported nothing/);
+  assert.match(focusVerify({ focusMode: 'manual', focusDistance: 1.2 }, null, cap), /nothing was pinned/);
+  assert.match(focusVerify({ focusMode: 'manual', focusDistance: 1.2 }, NaN, cap), /nothing was pinned/);
 });
 
 test('a sensor zoom already in effect is not re-applied', () => {
